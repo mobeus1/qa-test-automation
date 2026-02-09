@@ -1,0 +1,44 @@
+# ============================================================
+# EXAMPLE: Add this workflow to your APPLICATION repository
+# This triggers tests in the central QA repo after deployment
+# ============================================================
+
+name: Trigger QA Tests After Deploy
+
+on:
+  workflow_run:
+    workflows: ["Deploy to Environment"]
+    types: [completed]
+
+jobs:
+  trigger-qa:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log Dispatch Event
+        run: |
+          echo "Deployment completed successfully"
+          echo "Branch: ${{ github.event.workflow_run.head_branch }}"
+          echo "Commit: ${{ github.event.workflow_run.head_sha }}"
+
+      - name: Dispatch to QA Repo
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.QA_DISPATCH_PAT }}
+          repository: mobeus1/qa-test-automation
+          event-type: deployment-complete
+          client-payload: |
+            {
+              "app_name": "your-app-name",
+              "environment": "${{ github.event.workflow_run.head_branch == 'main' && 'production' || 'staging' }}",
+              "version": "${{ github.event.workflow_run.head_sha }}",
+              "test_suite": "SmokeTests",
+              "triggered_by": "${{ github.repository }}"
+            }
+
+      - name: Handle Dispatch Failure
+        if: failure()
+        run: |
+          echo "::error::Failed to dispatch QA tests"
+          echo "Ensure QA_DISPATCH_PAT secret is configured with repo scope"
+          exit 1
