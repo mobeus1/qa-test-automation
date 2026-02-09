@@ -1,0 +1,81 @@
+name: Run TestComplete Tests
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        required: true
+        type: string
+        description: 'Application name (must match config file)'
+      environment:
+        required: true
+        type: string
+        description: 'Target environment (staging, production)'
+      test-suite:
+        required: false
+        type: string
+        default: 'SmokeTests'
+        description: 'Test suite to execute'
+      config-file:
+        required: false
+        type: string
+        default: ''
+        description: 'Override config file path'
+    secrets:
+      TEST_EXECUTE_ACCESS_KEY:
+        required: true
+      NOTIFICATION_WEBHOOK:
+        required: false
+  workflow_dispatch:
+    inputs:
+      app-name:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: choice
+        options: [staging, production]
+      test-suite:
+        required: false
+        type: choice
+        default: 'SmokeTests'
+        options: [SmokeTests, RegressionTests, FullRegression]
+
+jobs:
+  run-tests:
+    runs-on: [self-hosted, windows, testcomplete]
+    timeout-minutes: 60
+    steps:
+      - name: Checkout QA Repository
+        uses: actions/checkout@v4
+
+      - name: Load Application Config
+        id: config
+        shell: pwsh
+        run: |
+          $configPath = if ("${{ inputs.config-file }}") { "${{ inputs.config-file }}" } else { "configs/${{ inputs.app-name }}.json" }
+          $config = Get-Content $configPath | ConvertFrom-Json
+          echo "project-suite=$($config.project_suite)" >> $env:GITHUB_OUTPUT
+          echo "timeout=$($config.timeout_minutes)" >> $env:GITHUB_OUTPUT
+          echo "base-url=$($config.environments.'${{ inputs.environment }}'.base_url)" >> $env:GITHUB_OUTPUT
+
+      - name: Run TestComplete Suite
+        id: test-run
+        shell: cmd
+        run: |
+          scripts\run-tests.bat "${{ steps.config.outputs.project-suite }}" "${{ inputs.test-suite }}" "${{ secrets.TEST_EXECUTE_ACCESS_KEY }}" "${{ steps.config.outputs.base-url }}"
+        continue-on-error: true
+
+      - name: Upload Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.app-name }}-${{ inputs.environment }}-${{ github.run_number }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+      - name: Fail if Tests Failed
+        if: steps.test-run.outcome == 'failure'
+        run: exit 1
