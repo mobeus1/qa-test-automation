@@ -1,0 +1,43 @@
+{
+  "testcomplete": {
+    "version": "15.x",
+    "execution_timeout_default": 30,
+    "log_format": "html",
+    "screenshot_on_failure": true,
+    "video_recording": false,
+    "browser_cache_clear": true,
+    "parallel_execution_enabled": false
+  },
+  "github_actions": {
+    "artifact_retention_days": 30,
+    "runner_labels": [
+      "self-hosted",
+      "windows",
+      "testcomplete"
+    ],
+    "max_parallel_suites": 3,
+    "job_timeout_minutes": 60
+  },
+  "notifications": {
+    "slack_channel": "#qa-automation",
+    "email_distribution": "qa-team@example.com",
+    "notify_on_failure": true,
+    "notify_on_success": false,
+    "include_logs_attachment": false
+  },
+  "test_results": {
+    "export_format": "html",
+    "archive_results": true,
+    "minimum_retention_days": 30,
+    "max_retention_days": 90,
+    "upload_to_artifact_store": true
+  },
+  "security": {
+    "mask_credentials_in_logs": true,
+    "require_approval_for_production": false,
+    "allowed_environments": [
+      "staging",
+      "production"
+    ]
+  }
+}
