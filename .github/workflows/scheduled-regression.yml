@@ -1,0 +1,69 @@
+name: Scheduled Regression Tests
+
+on:
+  schedule:
+    - cron: '0 2 * * 1-5'  # Weeknights at 2 AM UTC
+    - cron: '0 4 * * 6'    # Saturdays at 4 AM UTC (full regression)
+  workflow_dispatch:
+    inputs:
+      test-suite:
+        description: 'Test suite to run'
+        required: false
+        default: 'RegressionTests'
+        type: choice
+        options:
+          - SmokeTests
+          - RegressionTests
+          - FullRegression
+
+jobs:
+  determine-suite:
+    runs-on: ubuntu-latest
+    outputs:
+      test-suite: ${{ steps.suite.outputs.name }}
+    steps:
+      - name: Determine Test Suite
+        id: suite
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "name=${{ inputs.test-suite }}" >> $GITHUB_OUTPUT
+          elif [ "$(date +%u)" == "6" ]; then
+            echo "name=FullRegression" >> $GITHUB_OUTPUT
+          else
+            echo "name=RegressionTests" >> $GITHUB_OUTPUT
+          fi
+
+  run-app-a:
+    needs: determine-suite
+    uses: ./.github/workflows/run-testcomplete.yml
+    with:
+      app-name: app-a
+      environment: staging
+      test-suite: ${{ needs.determine-suite.outputs.test-suite }}
+    secrets:
+      TEST_EXECUTE_ACCESS_KEY: ${{ secrets.TEST_EXECUTE_ACCESS_KEY }}
+      NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
+
+  run-app-b:
+    needs: determine-suite
+    uses: ./.github/workflows/run-testcomplete.yml
+    with:
+      app-name: app-b
+      environment: staging
+      test-suite: ${{ needs.determine-suite.outputs.test-suite }}
+    secrets:
+      TEST_EXECUTE_ACCESS_KEY: ${{ secrets.TEST_EXECUTE_ACCESS_KEY }}
+      NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
+
+  summary:
+    needs: [run-app-a, run-app-b]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## Regression Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| App | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| App A | ${{ needs.run-app-a.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| App B | ${{ needs.run-app-b.result }} |" >> $GITHUB_STEP_SUMMARY
