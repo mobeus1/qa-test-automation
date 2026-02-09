@@ -1,0 +1,57 @@
+name: Test Orchestrator
+
+on:
+  repository_dispatch:
+    types: [deployment-complete]
+
+jobs:
+  validate-dispatch:
+    runs-on: ubuntu-latest
+    outputs:
+      app-name: ${{ steps.validate.outputs.app-name }}
+      environment: ${{ steps.validate.outputs.environment }}
+      test-suite: ${{ steps.validate.outputs.test-suite }}
+    steps:
+      - name: Validate Payload
+        id: validate
+        run: |
+          APP_NAME="${{ github.event.client_payload.app_name }}"
+          ENVIRONMENT="${{ github.event.client_payload.environment }}"
+          TEST_SUITE="${{ github.event.client_payload.test_suite || 'SmokeTests' }}"
+
+          if [ -z "$APP_NAME" ] || [ -z "$ENVIRONMENT" ]; then
+            echo "::error::Missing required fields: app_name and environment"
+            exit 1
+          fi
+
+          if [[ ! "$ENVIRONMENT" =~ ^(staging|production)$ ]]; then
+            echo "::error::Invalid environment: $ENVIRONMENT"
+            exit 1
+          fi
+
+          echo "app-name=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+          echo "test-suite=$TEST_SUITE" >> $GITHUB_OUTPUT
+
+  execute-tests:
+    needs: validate-dispatch
+    uses: ./.github/workflows/run-testcomplete.yml
+    with:
+      app-name: ${{ needs.validate-dispatch.outputs.app-name }}
+      environment: ${{ needs.validate-dispatch.outputs.environment }}
+      test-suite: ${{ needs.validate-dispatch.outputs.test-suite }}
+    secrets:
+      TEST_EXECUTE_ACCESS_KEY: ${{ secrets.TEST_EXECUTE_ACCESS_KEY }}
+      NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
+
+  notify-orchestrator:
+    needs: execute-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Completion Summary
+        run: |
+          echo "## Test Execution Complete" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Status | ${{ needs.execute-tests.result }} |" >> $GITHUB_STEP_SUMMARY
