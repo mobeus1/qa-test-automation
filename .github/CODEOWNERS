@@ -1,0 +1,21 @@
+# QA Team owns all workflow and config changes
+# This ensures quality and consistency across all test automation
+
+# Workflows
+.github/workflows/ @mobeus1/qa-team
+
+# Configurations
+configs/ @mobeus1/qa-team
+
+# Scripts
+scripts/ @mobeus1/qa-team
+
+# Documentation
+docs/ @mobeus1/qa-team
+
+# Root configuration files
+.github/CODEOWNERS @mobeus1/qa-team
+.gitignore @mobeus1/qa-team
+README.md @mobeus1/qa-team
+LICENSE @mobeus1/qa-team
+CONTRIBUTING.md @mobeus1/qa-team
