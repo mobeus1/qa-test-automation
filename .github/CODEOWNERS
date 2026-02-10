@@ -1,21 +1,23 @@
-# QA Team owns all workflow and config changes
-# This ensures quality and consistency across all test automation
+# CODEOWNERS for qa-test-automation
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
-# Workflows
-.github/workflows/ @mobeus1/qa-team
+# Default owners for everything in the repo
+* @qa-team
 
-# Configurations
-configs/ @mobeus1/qa-team
+# Workflow files - QA leads must review
+.github/workflows/ @qa-team @qa-leads
+
+# Shared configuration
+configs/shared-settings.json @qa-team @qa-leads
+
+# Per-application configs are owned by respective teams
+# See individual CODEOWNERS files in configs/apps/{app-name}/
+configs/apps/member-portal/ @qa-team @member-portal-team
+configs/apps/application-axz/ @qa-team @axz-team
 
 # Scripts
-scripts/ @mobeus1/qa-team
+scripts/ @qa-team
 
 # Documentation
-docs/ @mobeus1/qa-team
-
-# Root configuration files
-.github/CODEOWNERS @mobeus1/qa-team
-.gitignore @mobeus1/qa-team
-README.md @mobeus1/qa-team
-LICENSE @mobeus1/qa-team
-CONTRIBUTING.md @mobeus1/qa-team
+docs/ @qa-team
+README.md @qa-team
