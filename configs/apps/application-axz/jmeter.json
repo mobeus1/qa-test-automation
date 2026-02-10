@@ -1,0 +1,66 @@
+{
+  "app_name": "application-axz",
+  "description": "Application AXZ - Health Check and Load Testing",
+  "test_plans": {
+    "health-check": {
+      "description": "Basic endpoint health verification",
+      "threads": 1,
+      "duration_seconds": 30,
+      "ramp_up_seconds": 5
+    },
+    "smoke": {
+      "description": "Light load smoke test",
+      "threads": 5,
+      "duration_seconds": 60,
+      "ramp_up_seconds": 10
+    },
+    "load": {
+      "description": "Standard load test",
+      "threads": 25,
+      "duration_seconds": 300,
+      "ramp_up_seconds": 30
+    },
+    "stress": {
+      "description": "Stress test with high concurrency",
+      "threads": 50,
+      "duration_seconds": 600,
+      "ramp_up_seconds": 60
+    }
+  },
+  "health_endpoints": [
+    "/api/health",
+    "/api/status",
+    "/api/v1/data",
+    "/api/v1/process"
+  ],
+  "environments": {
+    "staging": {
+      "base_url": "https://staging.appaxz.example.com",
+      "threads_override": null,
+      "duration_override": null
+    },
+    "production": {
+      "base_url": "https://appaxz.example.com",
+      "threads_override": null,
+      "duration_override": null
+    }
+  },
+  "thresholds": {
+    "max_response_time_ms": 5000,
+    "max_error_rate_percent": 2,
+    "p90_response_time_ms": 3000,
+    "p95_response_time_ms": 4000
+  },
+  "notifications": {
+    "on_failure": [
+      "qa-team@example.com",
+      "axz-team@example.com"
+    ],
+    "on_success": []
+  },
+  "tags": [
+    "api",
+    "backend",
+    "critical-path"
+  ]
+}
