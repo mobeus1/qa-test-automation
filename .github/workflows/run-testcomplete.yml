@@ -4,78 +4,104 @@ on:
   workflow_call:
     inputs:
       app-name:
+        description: 'Application name matching configs/apps/{app-name}/testcomplete.json'
         required: true
         type: string
-        description: 'Application name (must match config file)'
       environment:
+        description: 'Target environment (staging or production)'
         required: true
         type: string
-        description: 'Target environment (staging, production)'
       test-suite:
+        description: 'Test suite to execute (e.g., SmokeTests, RegressionTests, FullRegression)'
         required: false
         type: string
         default: 'SmokeTests'
-        description: 'Test suite to execute'
-      config-file:
-        required: false
-        type: string
-        default: ''
-        description: 'Override config file path'
     secrets:
       TEST_EXECUTE_ACCESS_KEY:
         required: true
       NOTIFICATION_WEBHOOK:
         required: false
-  workflow_dispatch:
-    inputs:
-      app-name:
-        required: true
-        type: string
-      environment:
-        required: true
-        type: choice
-        options: [staging, production]
-      test-suite:
-        required: false
-        type: choice
-        default: 'SmokeTests'
-        options: [SmokeTests, RegressionTests, FullRegression]
 
 jobs:
   run-tests:
     runs-on: [self-hosted, windows, testcomplete]
     timeout-minutes: 60
+
     steps:
-      - name: Checkout QA Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Load Application Config
+      - name: Load App Configuration
         id: config
         shell: pwsh
         run: |
-          $configPath = if ("${{ inputs.config-file }}") { "${{ inputs.config-file }}" } else { "configs/${{ inputs.app-name }}.json" }
+          $configPath = "configs/apps/${{ inputs.app-name }}/testcomplete.json"
+          if (-not (Test-Path $configPath)) {
+            Write-Error "Config not found: $configPath"
+            exit 1
+          }
+
           $config = Get-Content $configPath | ConvertFrom-Json
           echo "project-suite=$($config.project_suite)" >> $env:GITHUB_OUTPUT
           echo "timeout=$($config.timeout_minutes)" >> $env:GITHUB_OUTPUT
-          echo "base-url=$($config.environments.'${{ inputs.environment }}'.base_url)" >> $env:GITHUB_OUTPUT
+
+          # Get environment-specific settings
+          $envConfig = $config.environments.${{ inputs.environment }}
+          if ($null -eq $envConfig) {
+            Write-Error "Environment '${{ inputs.environment }}' not found in config"
+            exit 1
+          }
+          echo "base-url=$($envConfig.base_url)" >> $env:GITHUB_OUTPUT
+          echo "credentials-secret=$($envConfig.credentials_secret)" >> $env:GITHUB_OUTPUT
+
+          # Get test items for the suite
+          $testItems = $config.test_items.'${{ inputs.test-suite }}'
+          if ($null -eq $testItems) {
+            Write-Error "Test suite '${{ inputs.test-suite }}' not found in config"
+            exit 1
+          }
+          $itemList = $testItems -join ','
+          echo "test-items=$itemList" >> $env:GITHUB_OUTPUT
 
       - name: Run TestComplete Suite
-        id: test-run
+        id: execute
         shell: cmd
+        env:
+          TC_ACCESS_KEY: ${{ secrets.TEST_EXECUTE_ACCESS_KEY }}
+          TEST_ENV: ${{ inputs.environment }}
+          BASE_URL: ${{ steps.config.outputs.base-url }}
         run: |
-          scripts\run-tests.bat "${{ steps.config.outputs.project-suite }}" "${{ inputs.test-suite }}" "${{ secrets.TEST_EXECUTE_ACCESS_KEY }}" "${{ steps.config.outputs.base-url }}"
-        continue-on-error: true
+          scripts\\run-tests.bat ^
+            "${{ steps.config.outputs.project-suite }}" ^
+            "${{ inputs.test-suite }}" ^
+            "${{ steps.config.outputs.test-items }}"
 
-      - name: Upload Test Artifacts
+      - name: Parse Test Results
+        if: always()
+        id: results
+        shell: pwsh
+        run: |
+          python scripts/parse-results.py ^
+            --results-dir "TestResults" ^
+            --output-format github ^
+            --suite-name "${{ inputs.test-suite }}"
+
+      - name: Upload Test Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ inputs.app-name }}-${{ inputs.environment }}-${{ github.run_number }}
-          path: |
-            test-results/
-            logs/
+          name: testcomplete-results-${{ inputs.app-name }}-${{ inputs.environment }}
+          path: TestResults/
           retention-days: 30
 
-      - name: Fail if Tests Failed
-        if: steps.test-run.outcome == 'failure'
-        run: exit 1
+      - name: Notify on Failure
+        if: failure() && secrets.NOTIFICATION_WEBHOOK != ''
+        shell: pwsh
+        run: |
+          python scripts/notify.py ^
+            --webhook "${{ secrets.NOTIFICATION_WEBHOOK }}" ^
+            --app "${{ inputs.app-name }}" ^
+            --environment "${{ inputs.environment }}" ^
+            --suite "${{ inputs.test-suite }}" ^
+            --status "failed" ^
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
