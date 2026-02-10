@@ -8,13 +8,30 @@
     "browser_cache_clear": true,
     "parallel_execution_enabled": false
   },
+  "jmeter": {
+    "version": "5.6.3",
+    "java_version": "17",
+    "default_test_plan": "health-check",
+    "default_threads": 1,
+    "default_duration_seconds": 30,
+    "default_ramp_up_seconds": 5,
+    "results_format": "jtl",
+    "generate_html_report": true,
+    "default_thresholds": {
+      "max_response_time_ms": 5000,
+      "max_error_rate_percent": 5,
+      "p90_response_time_ms": 3000,
+      "p95_response_time_ms": 4000
+    }
+  },
   "github_actions": {
     "artifact_retention_days": 30,
-    "runner_labels": [
+    "testcomplete_runner_labels": [
       "self-hosted",
       "windows",
       "testcomplete"
     ],
+    "jmeter_runner": "ubuntu-latest",
     "max_parallel_suites": 3,
     "job_timeout_minutes": 60
   },
