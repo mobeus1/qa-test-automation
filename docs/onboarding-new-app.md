@@ -1,154 +1,85 @@
 # Onboarding a New Application
 
-This guide walks you through adding a new application to the QA Test Automation Hub.
+This guide walks through adding a new application to the centralized QA test automation system.
 
 ## Prerequisites
 
-Before you begin, ensure you have:
-- A TestComplete project suite for your application
-- A GitHub Personal Access Token (PAT) with repo scope
-- Access to this qa-test-automation repository
-- Access to your application's GitHub repository
+- Access to this repository (qa-test-automation)
+- A GitHub PAT with `repo` scope for cross-repo dispatch
+- Your application's test suites ready in TestComplete and/or JMeter
 
-## Step 1: Create Application Configuration
+## Step 1: Create Application Config Folder
 
-Create a new JSON configuration file in the configs/ directory.
-
-File: configs/your-app.json
-
-```json
-{
-  "app_name": "your-app",
-  "description": "Your Application Description",
-  "project_suite": "test-suites/your-app/YourApp.pjs",
-  "test_items": {
-    "SmokeTests": ["Login", "BasicNavigation"],
-    "RegressionTests": ["Login", "BasicNavigation", "AdvancedFeatures"],
-    "FullRegression": ["Login", "BasicNavigation", "AdvancedFeatures", "EdgeCases"]
-  },
-  "environments": {
-    "staging": {
-      "base_url": "https://staging.your-app.com",
-      "credentials_secret": "YOUR_APP_STAGING_CREDS"
-    },
-    "production": {
-      "base_url": "https://your-app.com",
-      "credentials_secret": "YOUR_APP_PROD_CREDS"
-    }
-  },
-  "timeout_minutes": 30,
-  "notifications": {
-    "on_failure": ["your-team@example.com"],
-    "on_success": []
-  },
-  "tags": ["web"]
-}
-```
-
-### Configuration Fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| app_name | Yes | Unique identifier matching the config filename |
-| description | No | Human-readable description |
-| project_suite | Yes | Path to TestComplete .pjs file |
-| test_items | Yes | Map of suite names to test item arrays |
-| environments | Yes | Per-environment URLs and credential secrets |
-| timeout_minutes | No | Max execution time (default: 30) |
-| notifications | No | Email addresses for notifications |
-| tags | No | Categorization tags |
-
-## Step 2: Add TestComplete Project Suite
-
-Place your TestComplete project files under test-suites/your-app/:
+Create a new folder under `configs/apps/` with your application name:
 
 ```
-test-suites/
-  your-app/
-    YourApp.pjs          # Project suite file
-    YourApp.mds          # Master data storage
-    Script/              # Test scripts
-    Stores/              # Object repositories
+configs/apps/{your-app-name}/
+  testcomplete.json
+  jmeter.json
+  CODEOWNERS
 ```
 
-## Step 3: Add Dispatch Workflow to Your App Repository
+## Step 2: Configure TestComplete
 
-Copy the dispatch example workflow to your application repository:
+Create `configs/apps/{your-app-name}/testcomplete.json` using `configs/apps/member-portal/testcomplete.json` as a template. Key fields to customize:
 
-Source: .github/workflows/dispatch-example.yml
-Destination: your-app-repo/.github/workflows/trigger-qa-tests.yml
+- `app_name`: Your unique application identifier
+- `project_suite`: Path to your .pjs TestComplete project
+- `test_items`: Define SmokeTests, RegressionTests, and FullRegression suites
+- `environments`: Set staging and production URLs and credential secret names
 
-Update the following in the copied file:
-- Replace "your-app-name" with your actual app name
-- Verify the deployment workflow name matches yours
-- Ensure environment detection logic is correct
+## Step 3: Configure JMeter Health Checks
 
-## Step 4: Configure Secrets
+Create `configs/apps/{your-app-name}/jmeter.json` using `configs/apps/member-portal/jmeter.json` as a template. Key fields:
 
-### In Your Application Repository
+- `health_endpoints`: API endpoints to monitor (e.g., /api/health, /api/status)
+- `test_plans`: Define health-check, smoke, load, stress plans with thread counts
+- `thresholds`: Set max response time and error rate limits
+- `environments`: Base URLs per environment
 
-Add the following secret:
-- QA_DISPATCH_PAT: A GitHub PAT with repo scope that can trigger workflows in the qa-test-automation repository
+## Step 4: Set Up CODEOWNERS
 
-### In the QA Repository (if not already set)
+Create `configs/apps/{your-app-name}/CODEOWNERS` to assign team ownership.
 
-Ensure these secrets exist:
-- TEST_EXECUTE_ACCESS_KEY: SmartBear TestExecute access key
-- NOTIFICATION_WEBHOOK: Slack/Teams webhook URL (optional)
-- YOUR_APP_STAGING_CREDS: App-specific credentials (if needed)
+## Step 5: Add Test Suites
 
-## Step 5: Add to Scheduled Regression
+Place your test project files under `test-suites/{your-app-name}/`:
 
-Edit .github/workflows/scheduled-regression.yml and add a new job:
-
-```yaml
-  run-your-app:
-    needs: determine-suite
-    uses: ./.github/workflows/run-testcomplete.yml
-    with:
-      app-name: your-app
-      environment: staging
-      test-suite: ${{ needs.determine-suite.outputs.test-suite }}
-    secrets:
-      TEST_EXECUTE_ACCESS_KEY: ${{ secrets.TEST_EXECUTE_ACCESS_KEY }}
-      NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
+```
+test-suites/{your-app-name}/
+  testcomplete/    # TestComplete .pjs project
+  jmeter/          # Custom JMeter .jmx plans (optional)
 ```
 
-Also update the summary job to include your app.
+Note: If you don't provide custom .jmx files, the system auto-generates health check plans from your health_endpoints config.
 
-## Step 6: Test the Integration
+## Step 6: Add GitHub Secrets
 
-### Manual Test via CLI
+Add per-app secrets to the qa-test-automation repository:
+- `{APP}_STAGING_CREDS` - Staging credentials
+- `{APP}_PROD_CREDS` - Production credentials
 
-```bash
-gh api repos/mobeus1/qa-test-automation/dispatches \
-  -f event_type=deployment-complete \
-  -f 'client_payload[app_name]=your-app' \
-  -f 'client_payload[environment]=staging' \
-  -f 'client_payload[version]=test-v1.0'
-```
+## Step 7: Add Dispatch Trigger to Your App Repo
 
-### Manual Test via GitHub UI
+Copy `.github/workflows/dispatch-example.yml` to your app repository and customize the app_name, test_suite, and test_type fields.
 
-1. Go to Actions tab in qa-test-automation
-2. Select "Run TestComplete Tests"
-3. Click "Run workflow"
-4. Enter your app name and environment
-5. Monitor the run
+Add `QA_DISPATCH_PAT` secret to your app repo.
 
-### Verify End-to-End
+## Step 8: Add to Scheduled Regression
 
-1. Trigger a deployment in your app repository
-2. Verify the dispatch workflow runs
-3. Confirm tests execute in qa-test-automation
-4. Check test results and artifacts
+Update `.github/workflows/scheduled-regression.yml` to include your app in both TestComplete and JMeter scheduled runs.
 
-## Troubleshooting
+## Step 9: Update Root CODEOWNERS
 
-If tests don't trigger, check:
-- PAT has correct permissions
-- App name matches config filename exactly
-- Dispatch event type is "deployment-complete"
-- Workflow file is in the correct location
+Add your app's config path to `.github/CODEOWNERS`.
 
-See docs/troubleshooting.md for more help.
+## Verification Checklist
+
+- [ ] Config files created and valid JSON
+- [ ] CODEOWNERS set up for your team
+- [ ] Test suites placed in correct directory
+- [ ] GitHub secrets configured
+- [ ] Dispatch trigger added to app repo
+- [ ] Scheduled regression updated
+- [ ] Manual workflow_dispatch test successful
+- [ ] Post-deploy dispatch test successful
