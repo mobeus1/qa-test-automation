@@ -1,0 +1,30 @@
+{
+  "app_name": "member-portal",
+  "description": "Member Portal Web Application",
+  "project_suite": "test-suites/member-portal/testcomplete/MemberPortal.pjs",
+  "test_items": {
+    "SmokeTests": ["Login", "Navigation", "BasicSearch"],
+    "RegressionTests": ["Login", "Navigation", "BasicSearch", "AdvancedSearch", "UserProfile", "Settings"],
+    "FullRegression": ["Login", "Navigation", "BasicSearch", "AdvancedSearch", "UserProfile", "Settings", "Checkout", "Payments", "Reports"]
+  },
+  "environments": {
+    "staging": {
+      "base_url": "https://staging.member-portal.example.com",
+      "credentials_secret": "MEMBER_PORTAL_STAGING_CREDS"
+    },
+    "production": {
+      "base_url": "https://member-portal.example.com",
+      "credentials_secret": "MEMBER_PORTAL_PROD_CREDS"
+    }
+  },
+  "timeout_minutes": 30,
+  "notifications": {
+    "on_failure": ["qa-team@example.com"],
+    "on_success": []
+  },
+  "tags": ["web", "customer-facing"],
+  "retry_on_failure": {
+    "enabled": true,
+    "attempts": 2
+  }
+}
