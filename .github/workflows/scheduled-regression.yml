@@ -2,68 +2,124 @@ name: Scheduled Regression Tests
 
 on:
   schedule:
-    - cron: '0 2 * * 1-5'  # Weeknights at 2 AM UTC
-    - cron: '0 4 * * 6'    # Saturdays at 4 AM UTC (full regression)
+    # Weeknights at 2 AM UTC
+    - cron: '0 2 * * 1-5'
+    # Saturday full regression at 4 AM UTC
+    - cron: '0 4 * * 6'
   workflow_dispatch:
     inputs:
-      test-suite:
-        description: 'Test suite to run'
-        required: false
-        default: 'RegressionTests'
+      app-name:
+        description: 'Application to test (or "all")'
+        required: true
+        default: 'all'
         type: choice
         options:
-          - SmokeTests
-          - RegressionTests
-          - FullRegression
+          - all
+          - member-portal
+          - application-axz
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      test-type:
+        description: 'Type of tests to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - testcomplete
+          - jmeter
 
 jobs:
-  determine-suite:
-    runs-on: ubuntu-latest
-    outputs:
-      test-suite: ${{ steps.suite.outputs.name }}
-    steps:
-      - name: Determine Test Suite
-        id: suite
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "name=${{ inputs.test-suite }}" >> $GITHUB_OUTPUT
-          elif [ "$(date +%u)" == "6" ]; then
-            echo "name=FullRegression" >> $GITHUB_OUTPUT
-          else
-            echo "name=RegressionTests" >> $GITHUB_OUTPUT
-          fi
-
-  run-app-a:
-    needs: determine-suite
+  # ─── TestComplete Regression Tests ─────────────────────────────
+  member-portal-testcomplete:
+    if: >-
+      (github.event_name == 'schedule') ||
+      (github.event.inputs.app-name == 'all' || github.event.inputs.app-name == 'member-portal') &&
+      (github.event.inputs.test-type == 'all' || github.event.inputs.test-type == 'testcomplete')
     uses: ./.github/workflows/run-testcomplete.yml
     with:
-      app-name: app-a
-      environment: staging
-      test-suite: ${{ needs.determine-suite.outputs.test-suite }}
+      app-name: member-portal
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+      test-suite: ${{ github.event.schedule == '0 4 * * 6' && 'FullRegression' || 'RegressionTests' }}
     secrets:
       TEST_EXECUTE_ACCESS_KEY: ${{ secrets.TEST_EXECUTE_ACCESS_KEY }}
       NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
 
-  run-app-b:
-    needs: determine-suite
+  application-axz-testcomplete:
+    if: >-
+      (github.event_name == 'schedule') ||
+      (github.event.inputs.app-name == 'all' || github.event.inputs.app-name == 'application-axz') &&
+      (github.event.inputs.test-type == 'all' || github.event.inputs.test-type == 'testcomplete')
     uses: ./.github/workflows/run-testcomplete.yml
     with:
-      app-name: app-b
-      environment: staging
-      test-suite: ${{ needs.determine-suite.outputs.test-suite }}
+      app-name: application-axz
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+      test-suite: ${{ github.event.schedule == '0 4 * * 6' && 'FullRegression' || 'RegressionTests' }}
     secrets:
       TEST_EXECUTE_ACCESS_KEY: ${{ secrets.TEST_EXECUTE_ACCESS_KEY }}
       NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
 
-  summary:
-    needs: [run-app-a, run-app-b]
+  # ─── JMeter Health Check Tests ─────────────────────────────────
+  member-portal-jmeter:
+    if: >-
+      (github.event_name == 'schedule') ||
+      (github.event.inputs.app-name == 'all' || github.event.inputs.app-name == 'member-portal') &&
+      (github.event.inputs.test-type == 'all' || github.event.inputs.test-type == 'jmeter')
+    uses: ./.github/workflows/run-jmeter.yml
+    with:
+      app-name: member-portal
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+      test-plan: ${{ github.event.schedule == '0 4 * * 6' && 'load' || 'health-check' }}
+    secrets:
+      NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
+
+  application-axz-jmeter:
+    if: >-
+      (github.event_name == 'schedule') ||
+      (github.event.inputs.app-name == 'all' || github.event.inputs.app-name == 'application-axz') &&
+      (github.event.inputs.test-type == 'all' || github.event.inputs.test-type == 'jmeter')
+    uses: ./.github/workflows/run-jmeter.yml
+    with:
+      app-name: application-axz
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+      test-plan: ${{ github.event.schedule == '0 4 * * 6' && 'load' || 'health-check' }}
+    secrets:
+      NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
+
+  # ─── Summary ───────────────────────────────────────────────────
+  regression-summary:
+    needs:
+      - member-portal-testcomplete
+      - application-axz-testcomplete
+      - member-portal-jmeter
+      - application-axz-jmeter
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Generate Summary
         run: |
-          echo "## Regression Test Summary" >> $GITHUB_STEP_SUMMARY
-          echo "| App | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| App A | ${{ needs.run-app-a.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| App B | ${{ needs.run-app-b.result }} |" >> $GITHUB_STEP_SUMMARY
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## Scheduled Regression Results
+
+          ### TestComplete Results
+          | Application | Status |
+          |-------------|--------|
+          | member-portal | ${{ needs.member-portal-testcomplete.result || 'skipped' }} |
+          | application-axz | ${{ needs.application-axz-testcomplete.result || 'skipped' }} |
+
+          ### JMeter Results
+          | Application | Status |
+          |-------------|--------|
+          | member-portal | ${{ needs.member-portal-jmeter.result || 'skipped' }} |
+          | application-axz | ${{ needs.application-axz-jmeter.result || 'skipped' }} |
+
+          ---
+          Schedule: ${{ github.event.schedule || 'manual' }}
+          [View Full Run Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
