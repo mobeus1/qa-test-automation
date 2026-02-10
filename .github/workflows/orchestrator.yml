@@ -11,6 +11,7 @@ jobs:
       app-name: ${{ steps.validate.outputs.app-name }}
       environment: ${{ steps.validate.outputs.environment }}
       test-suite: ${{ steps.validate.outputs.test-suite }}
+      test-type: ${{ steps.validate.outputs.test-type }}
     steps:
       - name: Validate Payload
         id: validate
@@ -18,23 +19,62 @@ jobs:
           APP_NAME="${{ github.event.client_payload.app_name }}"
           ENVIRONMENT="${{ github.event.client_payload.environment }}"
           TEST_SUITE="${{ github.event.client_payload.test_suite || 'SmokeTests' }}"
+          VERSION="${{ github.event.client_payload.version || 'unknown' }}"
+          TRIGGERED_BY="${{ github.event.client_payload.triggered_by || 'unknown' }}"
+          TEST_TYPE="${{ github.event.client_payload.test_type || 'testcomplete' }}"
+
+          echo "Validating dispatch payload..."
+          echo "  app_name: $APP_NAME"
+          echo "  environment: $ENVIRONMENT"
+          echo "  test_suite: $TEST_SUITE"
+          echo "  version: $VERSION"
+          echo "  triggered_by: $TRIGGERED_BY"
+          echo "  test_type: $TEST_TYPE"
 
           if [ -z "$APP_NAME" ] || [ -z "$ENVIRONMENT" ]; then
             echo "::error::Missing required fields: app_name and environment"
             exit 1
           fi
 
+          # Validate environment value
           if [[ ! "$ENVIRONMENT" =~ ^(staging|production)$ ]]; then
-            echo "::error::Invalid environment: $ENVIRONMENT"
+            echo "::error::Invalid environment: $ENVIRONMENT (must be 'staging' or 'production')"
+            exit 1
+          fi
+
+          # Validate test type
+          if [[ ! "$TEST_TYPE" =~ ^(testcomplete|jmeter|all)$ ]]; then
+            echo "::error::Invalid test_type: $TEST_TYPE (must be 'testcomplete', 'jmeter', or 'all')"
             exit 1
           fi
 
           echo "app-name=$APP_NAME" >> $GITHUB_OUTPUT
           echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
           echo "test-suite=$TEST_SUITE" >> $GITHUB_OUTPUT
+          echo "test-type=$TEST_TYPE" >> $GITHUB_OUTPUT
 
-  execute-tests:
+      - name: Create Dispatch Summary
+        if: success()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## Deployment Event Received
+
+          | Field | Value |
+          |-------|-------|
+          | Application | ${{ github.event.client_payload.app_name }} |
+          | Environment | ${{ github.event.client_payload.environment }} |
+          | Version | ${{ github.event.client_payload.version }} |
+          | Test Suite | ${{ github.event.client_payload.test_suite || 'SmokeTests' }} |
+          | Test Type | ${{ github.event.client_payload.test_type || 'testcomplete' }} |
+          | Triggered By | ${{ github.event.client_payload.triggered_by }} |
+          | Timestamp | $(date -u +'%Y-%m-%dT%H:%M:%SZ') |
+
+          > Proceeding to execute tests...
+          EOF
+
+  execute-testcomplete:
     needs: validate-dispatch
+    if: needs.validate-dispatch.outputs.test-type == 'testcomplete' || needs.validate-dispatch.outputs.test-type == 'all'
     uses: ./.github/workflows/run-testcomplete.yml
     with:
       app-name: ${{ needs.validate-dispatch.outputs.app-name }}
@@ -44,14 +84,32 @@ jobs:
       TEST_EXECUTE_ACCESS_KEY: ${{ secrets.TEST_EXECUTE_ACCESS_KEY }}
       NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
 
+  execute-jmeter:
+    needs: validate-dispatch
+    if: needs.validate-dispatch.outputs.test-type == 'jmeter' || needs.validate-dispatch.outputs.test-type == 'all'
+    uses: ./.github/workflows/run-jmeter.yml
+    with:
+      app-name: ${{ needs.validate-dispatch.outputs.app-name }}
+      environment: ${{ needs.validate-dispatch.outputs.environment }}
+      test-plan: health-check
+    secrets:
+      NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
+
   notify-orchestrator:
-    needs: execute-tests
+    needs: [execute-testcomplete, execute-jmeter]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Create Completion Summary
         run: |
-          echo "## Test Execution Complete" >> $GITHUB_STEP_SUMMARY
-          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Test Status | ${{ needs.execute-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## Test Execution Complete
+
+          | Detail | Value |
+          |--------|-------|
+          | TestComplete Status | ${{ needs.execute-testcomplete.result || 'skipped' }} |
+          | JMeter Status | ${{ needs.execute-jmeter.result || 'skipped' }} |
+          | Execution Time | $(date -u +'%Y-%m-%dT%H:%M:%SZ') |
+
+          [View Full Run Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
