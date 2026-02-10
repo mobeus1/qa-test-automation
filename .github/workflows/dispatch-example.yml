@@ -25,7 +25,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.QA_DISPATCH_PAT }}
-          repository: mobeus1/qa-test-automation
+          repository: your-org/qa-test-automation
           event-type: deployment-complete
           client-payload: |
             {
@@ -33,8 +33,26 @@ jobs:
               "environment": "${{ github.event.workflow_run.head_branch == 'main' && 'production' || 'staging' }}",
               "version": "${{ github.event.workflow_run.head_sha }}",
               "test_suite": "SmokeTests",
+              "test_type": "all",
               "triggered_by": "${{ github.repository }}"
             }
+
+      - name: Create Dispatch Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## QA Test Dispatch Triggered
+
+          | Detail | Value |
+          |--------|-------|
+          | Application | your-app-name |
+          | Environment | ${{ github.event.workflow_run.head_branch == 'main' && 'production' || 'staging' }} |
+          | Version | ${{ github.event.workflow_run.head_sha }} |
+          | Test Suite | SmokeTests |
+          | Test Type | all (TestComplete + JMeter) |
+          | Status | Dispatched |
+
+          QA tests have been triggered in the central QA repository.
+          EOF
 
       - name: Handle Dispatch Failure
         if: failure()
