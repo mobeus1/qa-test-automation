@@ -1,0 +1,15 @@
+# CODEOWNERS for Application AXZ
+# This file defines code ownership for the application-axz test configurations
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# All files in this application config directory
+configs/apps/application-axz/ @qa-team @axz-team
+
+# TestComplete configurations
+configs/apps/application-axz/testcomplete.json @qa-team @axz-team
+
+# JMeter configurations
+configs/apps/application-axz/jmeter.json @qa-team @axz-team
+
+# Test suites for this application
+test-suites/application-axz/ @qa-team @axz-team
