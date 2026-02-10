@@ -1,0 +1,38 @@
+{
+  "app_name": "member-portal",
+  "description": "Member Portal - JMeter Health Check Configuration",
+  "test_plans": {
+    "health-check": "test-suites/member-portal/jmeter/health-check.jmx",
+    "smoke": "test-suites/member-portal/jmeter/smoke.jmx",
+    "load": "test-suites/member-portal/jmeter/load.jmx"
+  },
+  "health_endpoints": [
+    "/api/health",
+    "/api/status",
+    "/login",
+    "/api/v1/members"
+  ],
+  "environments": {
+    "staging": {
+      "base_url": "https://staging.member-portal.example.com",
+      "threads": 2,
+      "duration_seconds": 60
+    },
+    "production": {
+      "base_url": "https://member-portal.example.com",
+      "threads": 1,
+      "duration_seconds": 30
+    }
+  },
+  "thresholds": {
+    "max_response_time_ms": 3000,
+    "max_error_rate_percent": 1.0,
+    "p90_response_time_ms": 2000,
+    "p95_response_time_ms": 2500
+  },
+  "notifications": {
+    "on_failure": ["qa-team@example.com"],
+    "on_success": []
+  },
+  "tags": ["api", "health-check", "customer-facing"]
+}
