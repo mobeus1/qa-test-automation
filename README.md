@@ -1,141 +1,159 @@
-# QA Test Automation Hub
+# QA Test Automation
 
-[![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-blue)](https://github.com/mobeus1/qa-test-automation/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![TestComplete](https://img.shields.io/badge/Testing-SmartBear%20TestComplete-orange)](https://smartbear.com/product/testcomplete/)
-
-A centralized, scalable hub for orchestrating SmartBear TestComplete automated tests across multiple applications via GitHub Actions.
-
-## Overview
-
-The QA Test Automation Hub implements a **hub-and-spoke model** where:
-- **Hub**: This central repository coordinates and executes tests
-- **Spokes**: Individual application repositories trigger test execution after deployment
-
-This architecture provides centralized test management, scalability, consistency, observability, and efficiency through scheduled regression testing and manual triggering.
+Centralized test orchestration for running automated tests across multiple applications using GitHub Actions.
 
 ## Architecture
 
+This repository uses a **hub-and-spoke model** where this central QA repo orchestrates test execution across all applications.
+
 ```mermaid
 graph TB
-    subgraph "Application Repositories (Spokes)"
-        AppA["App A Repo"]
-        AppB["App B Repo"]
-        AppC["App C Repo"]
+    subgraph "Application Repos (Spokes)"
+        A1[Member Portal] -->|repository_dispatch| HUB
+        A2[Application AXZ] -->|repository_dispatch| HUB
+        A3[App N...] -->|repository_dispatch| HUB
     end
 
-    subgraph "QA Test Automation Hub"
-        Orchestrator["Orchestrator<br/>(repository_dispatch)"]
-        Scheduled["Scheduled Tests<br/>(cron)"]
-        Manual["Manual Dispatch<br/>(workflow_dispatch)"]
-        ReuseWF["Reusable Workflow<br/>(run-testcomplete.yml)"]
+    subgraph "QA Test Automation (Hub)"
+        HUB[Orchestrator] --> TC[TestComplete Runner]
+        HUB --> JM[JMeter Runner]
+        TC --> R1[Test Results]
+        JM --> R2[Health Check Results]
+        R1 --> N[Notifications]
+        R2 --> N
     end
-
-    subgraph "Execution"
-        Runner["Self-Hosted Runner<br/>(Windows + TestComplete)"]
-        Results["Test Results & Artifacts"]
-    end
-
-    AppA -->|deployment-complete| Orchestrator
-    AppB -->|deployment-complete| Orchestrator
-    AppC -->|deployment-complete| Orchestrator
-    Orchestrator -->|calls| ReuseWF
-    Scheduled -->|calls| ReuseWF
-    Manual -->|calls| ReuseWF
-    ReuseWF -->|executes| Runner
-    Runner -->|produces| Results
 ```
 
-## Quick Start
+## Supported Test Types
 
-### Prerequisites
-- Self-hosted GitHub Actions runner (Windows with TestComplete/TestExecute)
-- TEST_EXECUTE_ACCESS_KEY secret configured
-- Optional: NOTIFICATION_WEBHOOK secret for Slack notifications
-
-### Manual Test Trigger
-```bash
-gh workflow run run-testcomplete.yml \
-  -f app-name=app-a \
-  -f environment=staging \
-  -f test-suite=SmokeTests \
-  --repo mobeus1/qa-test-automation
-```
-
-### Repository Dispatch (from App Repo)
-```bash
-gh api repos/mobeus1/qa-test-automation/dispatches \
-  -f event_type=deployment-complete \
-  -f 'client_payload[app_name]=your-app' \
-  -f 'client_payload[environment]=staging' \
-  -f 'client_payload[version]=v1.2.3'
-```
+| Tool | Purpose | Runner | Config Location |
+|------|---------|--------|------------------|
+| **TestComplete** | UI/Functional testing | Self-hosted Windows | `configs/apps/{app}/testcomplete.json` |
+| **JMeter** | Health checks & load testing | Ubuntu (GitHub-hosted) | `configs/apps/{app}/jmeter.json` |
 
 ## Repository Structure
 
 ```
 qa-test-automation/
-  .github/
-    workflows/
-      run-testcomplete.yml        # Reusable test execution workflow
-      orchestrator.yml            # Handles repository dispatch events
-      scheduled-regression.yml    # Scheduled test runs
-      dispatch-example.yml        # Template for app repositories
-    CODEOWNERS
-  configs/
-    app-a.json                    # App A test configuration
-    app-b.json                    # App B test configuration
-    shared-settings.json          # Shared TestComplete settings
-  scripts/
-    run-tests.bat                 # TestComplete CLI wrapper
-    parse-results.py              # Test result parser
-    notify.py                     # Notification handler
-  docs/
-    onboarding-new-app.md         # Step-by-step app onboarding
-    architecture.md               # Architecture deep dive
-    troubleshooting.md            # Common issues and solutions
-  README.md
-  CONTRIBUTING.md
-  LICENSE
+├── .github/
+│   ├── workflows/
+│   │   ├── orchestrator.yml          # Main entry point (repository_dispatch)
+│   │   ├── run-testcomplete.yml      # Reusable TestComplete workflow
+│   │   ├── run-jmeter.yml            # Reusable JMeter workflow
+│   │   ├── scheduled-regression.yml  # Cron-based regression runs
+│   │   └── dispatch-example.yml      # Template for app repos
+│   └── CODEOWNERS
+├── configs/
+│   ├── apps/
+│   │   ├── member-portal/
+│   │   │   ├── testcomplete.json
+│   │   │   ├── jmeter.json
+│   │   │   └── CODEOWNERS
+│   │   └── application-axz/
+│   │       ├── testcomplete.json
+│   │       ├── jmeter.json
+│   │       └── CODEOWNERS
+│   └── shared-settings.json
+├── scripts/
+│   ├── run-tests.bat
+│   ├── run-jmeter.sh
+│   ├── parse-results.py
+│   ├── parse-jmeter-results.py
+│   └── notify.py
+├── test-suites/
+│   ├── member-portal/
+│   │   ├── testcomplete/
+│   │   └── jmeter/
+│   └── application-axz/
+│       ├── testcomplete/
+│       └── jmeter/
+├── docs/
+│   ├── architecture.md
+│   ├── onboarding-new-app.md
+│   └── troubleshooting.md
+├── CONTRIBUTING.md
+├── LICENSE
+└── README.md
 ```
 
-## How to Onboard a New Application
+## Quick Start
 
-1. Create configs/your-app.json (see configs/app-a.json as template)
-2. Add TestComplete project to test-suites/your-app/
-3. Copy dispatch-example.yml to your app repo
-4. Add to scheduled-regression.yml
-5. Test with manual dispatch
+### 1. Trigger Tests After Deployment
+
+Add the dispatch workflow to your app repo (see `dispatch-example.yml`):
+
+```yaml
+- name: Dispatch to QA Repo
+  uses: peter-evans/repository-dispatch@v3
+  with:
+    token: ${{ secrets.QA_DISPATCH_PAT }}
+    repository: your-org/qa-test-automation
+    event-type: deployment-complete
+    client-payload: |
+      {
+        "app_name": "your-app-name",
+        "environment": "staging",
+        "test_suite": "SmokeTests",
+        "test_type": "all"
+      }
+```
+
+### 2. Onboard a New Application
+
+1. Create `configs/apps/{app-name}/testcomplete.json`
+2. Create `configs/apps/{app-name}/jmeter.json`
+3. Create `configs/apps/{app-name}/CODEOWNERS`
+4. Add test suites under `test-suites/{app-name}/`
+5. Add the dispatch trigger to your app repo
 
 See [Onboarding Guide](docs/onboarding-new-app.md) for details.
 
+### 3. Run Tests Manually
+
+Go to **Actions > Scheduled Regression Tests > Run workflow** and select your app, environment, and test type.
+
 ## Trigger Methods
 
-| Method | Use Case | Trigger |
-|--------|----------|---------|
-| Repository Dispatch | After deployment | Automatic from app repo |
-| Scheduled | Nightly regression | Cron (weekdays 2AM, Sat 4AM) |
-| Manual | Ad-hoc testing | workflow_dispatch via UI or CLI |
+| Method | When | How |
+|--------|------|-----|
+| **Post-Deploy** | After successful deployment | `repository_dispatch` from app repo |
+| **Scheduled** | Weeknights 2AM, Saturdays 4AM UTC | Cron in `scheduled-regression.yml` |
+| **Manual** | On demand | `workflow_dispatch` in GitHub UI |
 
 ## Configuration Reference
 
-Each application needs a JSON config in configs/:
+### TestComplete Config
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| app_name | Yes | Unique application identifier |
-| project_suite | Yes | Path to TestComplete project |
-| test_items | Yes | Map of suite names to test arrays |
-| environments | Yes | Per-env URLs and credentials |
-| timeout_minutes | No | Max execution time (default: 30) |
+| Field | Description |
+|-------|-------------|
+| `app_name` | Unique application identifier |
+| `project_suite` | Path to .pjs TestComplete project |
+| `test_items` | Named test suites with test item lists |
+| `environments` | Per-env base URLs and credential secrets |
+| `timeout_minutes` | Max execution time |
+
+### JMeter Config
+
+| Field | Description |
+|-------|-------------|
+| `app_name` | Unique application identifier |
+| `test_plans` | Named plans (health-check, smoke, load, stress) |
+| `health_endpoints` | API endpoints to verify |
+| `environments` | Per-env base URLs and overrides |
+| `thresholds` | Pass/fail criteria (response time, error rate) |
 
 ## Documentation
 
-- [Architecture Guide](docs/architecture.md)
-- [Onboarding Guide](docs/onboarding-new-app.md)
+- [Architecture Deep Dive](docs/architecture.md)
+- [Onboarding New Applications](docs/onboarding-new-app.md)
 - [Troubleshooting Guide](docs/troubleshooting.md)
-- [Contributing](CONTRIBUTING.md)
 
-## License
+## Required Secrets
 
-MIT License - see [LICENSE](LICENSE) for details.
+| Secret | Purpose |
+|--------|--------|
+| `QA_DISPATCH_PAT` | PAT with repo scope for cross-repo dispatch |
+| `TEST_EXECUTE_ACCESS_KEY` | SmartBear TestExecute license key |
+| `NOTIFICATION_WEBHOOK` | Slack/Teams webhook URL |
+| `{APP}_STAGING_CREDS` | Per-app staging credentials |
+| `{APP}_PROD_CREDS` | Per-app production credentials |
