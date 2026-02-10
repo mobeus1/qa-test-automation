@@ -1,0 +1,30 @@
+{
+  "app_name": "application-axz",
+  "description": "Application AXZ - Internal System",
+  "project_suite": "test-suites/application-axz/testcomplete/AppAXZ.pjs",
+  "test_items": {
+    "SmokeTests": ["Login", "DashboardLoad", "BasicReports"],
+    "RegressionTests": ["Login", "DashboardLoad", "BasicReports", "UserManagement", "AuditLog"],
+    "FullRegression": ["Login", "DashboardLoad", "BasicReports", "UserManagement", "AuditLog", "DataExport", "SystemConfig"]
+  },
+  "environments": {
+    "staging": {
+      "base_url": "https://staging.app-axz.example.com",
+      "credentials_secret": "APP_AXZ_STAGING_CREDS"
+    },
+    "production": {
+      "base_url": "https://app-axz.example.com",
+      "credentials_secret": "APP_AXZ_PROD_CREDS"
+    }
+  },
+  "timeout_minutes": 45,
+  "notifications": {
+    "on_failure": ["qa-team@example.com", "axz-team@example.com"],
+    "on_success": []
+  },
+  "tags": ["web", "internal"],
+  "retry_on_failure": {
+    "enabled": true,
+    "attempts": 2
+  }
+}
