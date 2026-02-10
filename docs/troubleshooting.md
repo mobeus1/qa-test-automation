@@ -1,160 +1,105 @@
 # Troubleshooting Guide
 
-Common issues and solutions for the QA Test Automation Hub.
+## Common Issues
 
-## Dispatch Issues
+### Dispatch Not Triggering Tests
 
-### Tests don't trigger after deployment
+**Symptom**: You deploy your app but no tests run in the QA repo.
 
-**Symptoms**: Deployment completes in your app repo but no test run appears in qa-test-automation.
+**Checks**:
+1. Verify `QA_DISPATCH_PAT` secret is set in your app repo with `repo` scope
+2. Confirm the `event-type` matches `deployment-complete`
+3. Check the `repository` field points to the correct QA repo
+4. Verify the PAT owner has write access to the QA repo
+5. Check Actions tab in both repos for failed runs
 
-**Solutions**:
-1. Verify QA_DISPATCH_PAT secret is set in your app repo with repo scope
-2. Check the dispatch workflow exists at .github/workflows/trigger-qa-tests.yml
-3. Ensure event_type is exactly "deployment-complete"
-4. Verify the PAT hasn't expired
-5. Check the app repo Actions tab for dispatch workflow failures
+### TestComplete Runner Not Picking Up Jobs
 
-### Invalid payload error
+**Symptom**: Jobs queue indefinitely with "Waiting for a runner".
 
-**Symptoms**: Orchestrator fails at the "Validate Payload" step.
+**Checks**:
+1. Verify self-hosted runner is online: Settings > Actions > Runners
+2. Confirm runner has labels: `self-hosted`, `windows`, `testcomplete`
+3. Check runner machine has TestComplete/TestExecute installed
+4. Restart the runner service if needed
+5. Check if another job is already running (parallel execution may be disabled)
 
-**Solutions**:
-1. Ensure app_name matches a config file in configs/ (without .json extension)
-2. Environment must be "staging" or "production"
-3. Check client_payload JSON formatting in your dispatch workflow
+### TestComplete Tests Failing
 
-## Runner Issues
+**Symptom**: Tests start but fail during execution.
 
-### "No runner found" error
+**Checks**:
+1. Verify `TEST_EXECUTE_ACCESS_KEY` secret is valid and not expired
+2. Check app config at `configs/apps/{app}/testcomplete.json` has correct project_suite path
+3. Verify the test_items list matches actual test names in the project
+4. Check if the target environment (base_url) is accessible from the runner
+5. Review test artifacts uploaded to the Actions run for screenshots and logs
 
-**Symptoms**: Workflow queued but never starts.
+### Config File Not Found
 
-**Solutions**:
-1. Verify a self-hosted runner with labels [self-hosted, windows, testcomplete] is online
-2. Check runner status at Settings > Actions > Runners
-3. Restart the runner service on the Windows machine
-4. Ensure the runner has TestComplete/TestExecute installed
+**Symptom**: Error "Config not found: configs/apps/{app}/testcomplete.json"
 
-### TestComplete/TestExecute not found
+**Checks**:
+1. Verify the `app-name` in the dispatch payload matches the folder name exactly
+2. Check the config file exists at the expected path
+3. Ensure the JSON is valid (no trailing commas, proper quoting)
 
-**Symptoms**: run-tests.bat fails with "Neither TestExecute nor TestComplete found"
+### JMeter Health Checks Failing
 
-**Solutions**:
-1. Verify installation path: C:\Program Files (x86)\SmartBear\TestComplete 15\
-2. Or: C:\Program Files (x86)\SmartBear\TestExecute 15\
-3. Check that the installation isn't corrupted
-4. Ensure proper licensing is configured
+**Symptom**: JMeter tests report failures or threshold violations.
 
-### Tests timeout
+**Checks**:
+1. Verify endpoints in `configs/apps/{app}/jmeter.json` are correct and accessible
+2. Check if the target environment is up and healthy
+3. Review thresholds - they may be too strict for your environment:
+   - `max_response_time_ms`: Maximum acceptable response time
+   - `max_error_rate_percent`: Maximum acceptable error rate
+   - `p90_response_time_ms` / `p95_response_time_ms`: Percentile thresholds
+4. Check the JMeter HTML report artifact for detailed breakdown
+5. Verify the base_url for the environment is correct
 
-**Symptoms**: Workflow cancelled after timeout period.
+### JMeter Installation Failures
 
-**Solutions**:
-1. Increase timeout_minutes in your app config JSON
-2. Check if the application under test is responding
-3. Look for hung browser processes on the runner
-4. Review TestComplete logs for stuck tests
+**Symptom**: JMeter workflow fails at setup step.
 
-## Configuration Issues
+**Checks**:
+1. JMeter is downloaded from Apache mirrors - check if the version (5.6.3) is still available
+2. Verify Java 17 setup succeeded
+3. Check for network connectivity issues on the runner
+4. Review `configs/shared-settings.json` for correct JMeter version setting
 
-### Config file not found
+### JMeter Test Plan Not Found
 
-**Symptoms**: "Load Application Config" step fails.
+**Symptom**: Error about missing .jmx test plan file.
 
-**Solutions**:
-1. Config filename must match the app-name input exactly
-2. File must be in configs/ directory with .json extension
-3. Verify JSON syntax is valid
+**Checks**:
+1. If using custom .jmx plans, verify they exist at `test-suites/{app}/jmeter/`
+2. If relying on auto-generated plans, ensure `health_endpoints` is configured in jmeter.json
+3. Verify the `test-plan` input matches a key in your config's `test_plans` section
 
-### Environment URL incorrect
+### Notification Failures
 
-**Symptoms**: Tests run but fail to connect to the application.
+**Symptom**: Tests run but no Slack/email notifications sent.
 
-**Solutions**:
-1. Verify base_url in your config matches the actual deployment URL
-2. Check if the environment is accessible from the runner machine
-3. Ensure SSL certificates are valid (no self-signed cert issues)
+**Checks**:
+1. Verify `NOTIFICATION_WEBHOOK` secret is set and valid
+2. Check if notifications are configured for the event type (failure vs success)
+3. Test the webhook URL manually with a curl command
+4. Review the notify step logs in the Actions run
 
-## Test Execution Issues
+### Scheduled Regression Not Running
 
-### Tests pass locally but fail in CI
+**Symptom**: Cron jobs don't trigger on schedule.
 
-**Solutions**:
-1. Screen resolution: Ensure runner has adequate screen resolution
-2. Browser cache: Tests may need a clean browser state
-3. Timing: Add appropriate waits for CI environment
-4. Network: Verify runner can access all test dependencies
-5. Credentials: Check environment-specific credentials
+**Checks**:
+1. GitHub Actions cron may have up to 15-minute delay
+2. Scheduled workflows only run on the default branch (main)
+3. Repos with no activity for 60+ days may have Actions disabled
+4. Verify cron syntax is correct in `scheduled-regression.yml`
 
-### Flaky tests
+## Getting Help
 
-**Solutions**:
-1. Enable retry_on_failure in your app config
-2. Add explicit waits instead of fixed sleep times
-3. Isolate tests to avoid dependencies between them
-4. Check for timing-sensitive assertions
-
-### Missing test artifacts
-
-**Symptoms**: Workflow completes but no artifacts are uploaded.
-
-**Solutions**:
-1. Verify test-results/ directory exists after execution
-2. Check log output for file path issues
-3. Ensure artifact upload step has if: always() condition
-4. Check artifact size limits (GitHub has a 500MB limit)
-
-## Notification Issues
-
-### No Slack notifications on failure
-
-**Solutions**:
-1. Verify NOTIFICATION_WEBHOOK secret is set
-2. Check webhook URL is valid and active
-3. Look for errors in the notification step logs
-4. Verify the Slack app/integration is properly configured
-
-## Workflow Issues
-
-### Reusable workflow not found
-
-**Symptoms**: Error referencing ./.github/workflows/run-testcomplete.yml
-
-**Solutions**:
-1. The file must exist on the default branch (main)
-2. Filename must match exactly (case-sensitive)
-3. Ensure the file has workflow_call trigger defined
-
-### Secrets not available in reusable workflow
-
-**Solutions**:
-1. Secrets must be explicitly passed in the uses: section
-2. Check secret names match between caller and callee
-3. Verify secrets are set at the repository level
-
-## Getting More Help
-
-1. Check GitHub Actions workflow logs for detailed error messages
-2. Review the architecture docs at docs/architecture.md
-3. Open an issue in this repository
-4. Contact the QA team
-
-## Useful Commands
-
-```bash
-# Check workflow runs
-gh run list --repo mobeus1/qa-test-automation
-
-# View specific run logs
-gh run view <run-id> --repo mobeus1/qa-test-automation --log
-
-# Manually trigger tests
-gh workflow run run-testcomplete.yml -f app-name=app-a -f environment=staging
-
-# Test dispatch payload
-gh api repos/mobeus1/qa-test-automation/dispatches \
-  -f event_type=deployment-complete \
-  -f 'client_payload[app_name]=app-a' \
-  -f 'client_payload[environment]=staging'
-```
+1. Check the Actions tab for detailed error logs
+2. Review test artifacts (screenshots, HTML reports) uploaded per run
+3. Consult the [Architecture Guide](architecture.md) for system design context
+4. Contact the QA team via #qa-automation Slack channel
