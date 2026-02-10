@@ -1,0 +1,168 @@
+name: Run JMeter Health Check Tests
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        required: true
+        type: string
+        description: 'Application name (must match configs/apps/<app-name>)'
+      environment:
+        required: true
+        type: string
+        description: 'Target environment (staging, production)'
+      test-plan:
+        required: false
+        type: string
+        default: 'health-check'
+        description: 'JMeter test plan to execute'
+      threads:
+        required: false
+        type: number
+        default: 1
+        description: 'Number of concurrent threads'
+      duration-seconds:
+        required: false
+        type: number
+        default: 60
+        description: 'Test duration in seconds'
+      config-file:
+        required: false
+        type: string
+        default: ''
+        description: 'Override config file path'
+    secrets:
+      NOTIFICATION_WEBHOOK:
+        required: false
+  workflow_dispatch:
+    inputs:
+      app-name:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: choice
+        options: [staging, production]
+      test-plan:
+        required: false
+        type: choice
+        default: 'health-check'
+        options: [health-check, smoke, load, stress]
+      threads:
+        required: false
+        type: number
+        default: 1
+      duration-seconds:
+        required: false
+        type: number
+        default: 60
+
+jobs:
+  run-jmeter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout QA Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install JMeter
+        run: |
+          JMETER_VERSION=5.6.3
+          wget -q "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz"
+          tar -xzf "apache-jmeter-${JMETER_VERSION}.tgz"
+          echo "JMETER_HOME=$(pwd)/apache-jmeter-${JMETER_VERSION}" >> $GITHUB_ENV
+          echo "$(pwd)/apache-jmeter-${JMETER_VERSION}/bin" >> $GITHUB_PATH
+
+      - name: Load Application Config
+        id: config
+        run: |
+          CONFIG_PATH="configs/apps/${{ inputs.app-name }}/jmeter.json"
+          if [ -n "${{ inputs.config-file }}" ]; then
+            CONFIG_PATH="${{ inputs.config-file }}"
+          fi
+
+          if [ ! -f "$CONFIG_PATH" ]; then
+            echo "::error::JMeter config not found: $CONFIG_PATH"
+            exit 1
+          fi
+
+          BASE_URL=$(jq -r '.environments["${{ inputs.environment }}"].base_url' "$CONFIG_PATH")
+          HEALTH_ENDPOINTS=$(jq -r '.health_endpoints | join(",")' "$CONFIG_PATH")
+          THRESHOLDS_RT=$(jq -r '.thresholds.max_response_time_ms // 5000' "$CONFIG_PATH")
+          THRESHOLDS_ERR=$(jq -r '.thresholds.max_error_rate_percent // 1' "$CONFIG_PATH")
+
+          echo "base-url=$BASE_URL" >> $GITHUB_OUTPUT
+          echo "health-endpoints=$HEALTH_ENDPOINTS" >> $GITHUB_OUTPUT
+          echo "max-response-time=$THRESHOLDS_RT" >> $GITHUB_OUTPUT
+          echo "max-error-rate=$THRESHOLDS_ERR" >> $GITHUB_OUTPUT
+
+      - name: Run JMeter Health Check
+        id: jmeter-run
+        run: |
+          scripts/run-jmeter.sh \
+            --app "${{ inputs.app-name }}" \
+            --base-url "${{ steps.config.outputs.base-url }}" \
+            --endpoints "${{ steps.config.outputs.health-endpoints }}" \
+            --test-plan "${{ inputs.test-plan }}" \
+            --threads "${{ inputs.threads }}" \
+            --duration "${{ inputs.duration-seconds }}" \
+            --output-dir "test-results/jmeter"
+        continue-on-error: true
+
+      - name: Parse JMeter Results
+        if: always()
+        run: |
+          python scripts/parse-jmeter-results.py \
+            --app "${{ inputs.app-name }}" \
+            --env "${{ inputs.environment }}" \
+            --results-dir "test-results/jmeter" \
+            --max-response-time "${{ steps.config.outputs.max-response-time }}" \
+            --max-error-rate "${{ steps.config.outputs.max-error-rate }}"
+
+      - name: Upload JMeter Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-results-${{ inputs.app-name }}-${{ inputs.environment }}-${{ github.run_number }}
+          path: test-results/jmeter/
+          retention-days: 30
+
+      - name: Create Job Summary
+        if: always()
+        run: |
+          echo "## JMeter Health Check: ${{ inputs.app-name }} (${{ inputs.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| App | ${{ inputs.app-name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Plan | ${{ inputs.test-plan }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Threads | ${{ inputs.threads }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Duration | ${{ inputs.duration-seconds }}s |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ${{ steps.jmeter-run.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          if [ -f "test-results/jmeter/summary.md" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat test-results/jmeter/summary.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Send Notification on Failure
+        if: failure()
+        run: |
+          if [ -n "${{ secrets.NOTIFICATION_WEBHOOK }}" ]; then
+            python scripts/notify.py \
+              --webhook "${{ secrets.NOTIFICATION_WEBHOOK }}" \
+              --app "${{ inputs.app-name }}" \
+              --env "${{ inputs.environment }}" \
+              --status "failed" \
+              --test-type "jmeter-health-check" \
+              --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+
+      - name: Fail if Health Check Failed
+        if: steps.jmeter-run.outcome == 'failure'
+        run: exit 1
