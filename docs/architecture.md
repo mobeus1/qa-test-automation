@@ -1,135 +1,139 @@
-# Architecture Guide
+# Architecture Deep Dive
 
-## Overview
+## Hub-and-Spoke Model
 
-The QA Test Automation Hub uses a **hub-and-spoke architecture** to centralize test orchestration while allowing individual application teams to maintain ownership of their deployment pipelines.
+This QA automation system uses a centralized hub-and-spoke architecture:
 
-## Design Principles
+- **Hub**: This repository (`qa-test-automation`) contains all test orchestration logic, configurations, and reusable workflows
+- **Spokes**: Individual application repositories trigger tests via `repository_dispatch` events after deployment
 
-1. **Separation of Concerns**: Test logic lives in the hub; deployment logic lives in app repos
-2. **Configuration over Code**: Apps are onboarded via JSON config, not workflow changes
-3. **Reusability**: A single reusable workflow serves all applications
-4. **Observability**: Every run produces artifacts, summaries, and notifications
-5. **Scalability**: Adding a new app requires only a config file and dispatch trigger
+```mermaid
+graph LR
+    subgraph Spokes
+        MP[Member Portal]
+        AXZ[Application AXZ]
+        AN[App N]
+    end
 
-## Component Architecture
+    subgraph Hub
+        O[Orchestrator]
+        TC[TestComplete]
+        JM[JMeter]
+        N[Notifications]
+    end
 
-### Hub Components
-
-#### Reusable Workflow (run-testcomplete.yml)
-The core execution engine. Accepts standardized inputs (app-name, environment, test-suite) and handles the full lifecycle: config loading, test execution, result parsing, artifact upload, and notifications. All other workflows delegate to this one.
-
-#### Orchestrator (orchestrator.yml)
-Listens for repository_dispatch events from application repositories. Validates the payload, extracts parameters, and delegates to the reusable workflow. Acts as the entry point for automated post-deployment testing.
-
-#### Scheduled Regression (scheduled-regression.yml)
-Cron-triggered workflow that runs regression tests on a schedule. Weeknights run standard regression; Saturday runs full regression. Each app gets its own parallel job for independent execution.
-
-#### Dispatch Example (dispatch-example.yml)
-Template workflow for app repos. Teams copy this to their repository and customize it to trigger QA tests after their deployment completes.
-
-### Configuration Layer
-
-#### Application Configs (configs/*.json)
-Each app has a JSON config defining its TestComplete project, test suites, environment URLs, credentials, timeouts, and notification preferences. The reusable workflow reads this at runtime.
-
-#### Shared Settings (configs/shared-settings.json)
-Global defaults for TestComplete settings, runner labels, artifact retention, and notification channels.
-
-### Execution Layer
-
-#### TestComplete Runner (scripts/run-tests.bat)
-Windows batch script that wraps the TestComplete/TestExecute CLI. Handles tool detection, test execution, log export, and exit code mapping.
-
-#### Result Parser (scripts/parse-results.py)
-Processes TestComplete output into structured JSON summaries for GitHub Actions job summaries and downstream consumers.
-
-#### Notification Handler (scripts/notify.py)
-Sends Slack-compatible webhook notifications with test status, app info, and links to the GitHub Actions run.
-
-## Workflow Patterns
-
-### Pattern 1: Post-Deployment (Automated)
-
-```
-App Repo deploys -> workflow_run triggers dispatch workflow
-  -> repository_dispatch to qa-test-automation
-    -> orchestrator validates payload
-      -> reusable workflow executes tests
-        -> results uploaded, notifications sent
+    MP -->|dispatch| O
+    AXZ -->|dispatch| O
+    AN -->|dispatch| O
+    O --> TC
+    O --> JM
+    TC --> N
+    JM --> N
 ```
 
-Best for: Continuous integration, smoke tests after every deployment.
+## Why Hub-and-Spoke?
 
-### Pattern 2: Scheduled Regression
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Hub-and-Spoke (chosen)** | Single source of truth, easy onboarding, consistent execution | Requires cross-repo PAT, central point of coordination |
+| Single Pipeline per Repo | Simple, self-contained | Duplicated logic, inconsistent configs, hard to maintain |
+| Monorepo | Everything together | Doesn't match multi-app reality |
+
+## Workflow Architecture
+
+### Entry Points
+
+Three ways tests get triggered:
+
+1. **repository_dispatch** - `orchestrator.yml` receives events from app repos after deployment
+2. **schedule** - `scheduled-regression.yml` runs on cron (weeknights + weekends)
+3. **workflow_dispatch** - Manual trigger from GitHub Actions UI
+
+### Reusable Workflows
+
+#### TestComplete (`run-testcomplete.yml`)
+
+Runs SmartBear TestComplete/TestExecute UI tests on self-hosted Windows runners.
+
+- Loads config from `configs/apps/{app-name}/testcomplete.json`
+- Executes test suites via `scripts/run-tests.bat`
+- Parses results with `scripts/parse-results.py`
+- Uploads artifacts (logs, screenshots)
+- Sends failure notifications
+
+#### JMeter (`run-jmeter.yml`)
+
+Runs Apache JMeter health checks and load tests on GitHub-hosted Ubuntu runners.
+
+- Loads config from `configs/apps/{app-name}/jmeter.json`
+- Supports multiple test plans: health-check, smoke, load, stress
+- Either uses existing .jmx files or auto-generates from health endpoints
+- Validates against thresholds (response time, error rate, percentiles)
+- Generates HTML reports and markdown summaries
+
+### Orchestrator Flow
+
+```mermaid
+sequenceDiagram
+    participant App as App Repo
+    participant Orch as Orchestrator
+    participant TC as TestComplete
+    participant JM as JMeter
+    participant Notify as Notifications
+
+    App->>Orch: repository_dispatch (deployment-complete)
+    Orch->>Orch: Validate payload
+    
+    par Run in parallel
+        Orch->>TC: Execute UI tests
+        TC-->>Orch: Results
+    and
+        Orch->>JM: Execute health checks
+        JM-->>Orch: Results
+    end
+    
+    Orch->>Notify: Send results summary
+```
+
+## Configuration Architecture
+
+### Per-Application Config Structure
+
+Each application has its own folder under `configs/apps/`:
 
 ```
-Cron trigger fires -> determine test suite based on day
-  -> parallel jobs for each app
-    -> reusable workflow executes tests
-      -> summary job aggregates results
+configs/apps/{app-name}/
+├── testcomplete.json    # TestComplete test configuration
+├── jmeter.json          # JMeter health check configuration
+└── CODEOWNERS           # Team ownership for this app's configs
 ```
 
-Best for: Nightly regression, weekend full regression, compliance testing.
+This structure allows:
+- **Independent ownership**: Each team owns their app's config via CODEOWNERS
+- **Tool-specific configs**: Separate files per test tool
+- **Easy onboarding**: Copy a template folder and customize
+- **Extensibility**: Add new tool configs (e.g., `playwright.json`) without changing existing ones
 
-### Pattern 3: Manual Dispatch
+### Config Resolution Order
 
-```
-User triggers via UI or CLI -> workflow_dispatch
-  -> reusable workflow executes tests
-    -> results uploaded
-```
-
-Best for: Ad-hoc testing, debugging, pre-release validation.
+1. Per-app tool config (`configs/apps/{app}/testcomplete.json`)
+2. Shared settings (`configs/shared-settings.json`)
+3. Workflow defaults (hardcoded in YAML)
 
 ## Security Model
 
-### Secrets Management
-- TEST_EXECUTE_ACCESS_KEY: Stored at repo level, passed to reusable workflow
-- App credentials: Stored as separate secrets per app/environment
-- QA_DISPATCH_PAT: Stored in app repos, used only for cross-repo dispatch
-- NOTIFICATION_WEBHOOK: Optional, stored at repo level
+- **Cross-repo dispatch**: Requires a PAT (`QA_DISPATCH_PAT`) with `repo` scope
+- **Credentials**: Stored as GitHub Secrets, referenced by name in app configs
+- **Log masking**: All credentials automatically masked in workflow logs
+- **CODEOWNERS**: Enforces review requirements per application
 
-### Access Control
-- CODEOWNERS enforces QA team review for all changes
-- Branch protection on main prevents direct pushes
-- Fine-grained PATs scoped to minimum required permissions
+## Extensibility
 
-## Scaling Considerations
+### Adding a New Test Tool
 
-### Adding More Apps
-The architecture scales linearly. Each new app requires:
-- One config file (no workflow changes for dispatch/manual)
-- One job added to scheduled-regression.yml
-- Runner capacity for parallel execution
-
-### Runner Capacity
-- Self-hosted runners on Windows machines with TestComplete
-- max_parallel_suites in shared-settings.json controls concurrency
-- Add more runners for horizontal scaling
-- Consider runner groups for environment isolation
-
-### Performance
-- Apps run in parallel during scheduled regression
-- Independent failures don't block other apps
-- Artifact upload happens per-app for isolation
-- Timeout per-app prevents runaway tests
-
-## Decision Matrix
-
-| Scenario | Trigger | Suite | Environment |
-|----------|---------|-------|-------------|
-| After staging deploy | repository_dispatch | SmokeTests | staging |
-| After prod deploy | repository_dispatch | SmokeTests | production |
-| Nightly (weekday) | schedule | RegressionTests | staging |
-| Weekend | schedule | FullRegression | staging |
-| Pre-release check | workflow_dispatch | FullRegression | staging |
-| Debugging | workflow_dispatch | SmokeTests | any |
-
-## Future Considerations
-
-- **Test Parallelization**: Split large suites across multiple runners
-- **Result Dashboard**: Aggregate historical results for trend analysis
-- **Dynamic Config**: Pull configs from a central config service
-- **Cross-Browser**: Extend to run same tests across multiple browsers
-- **API Testing**: Add non-TestComplete test runners for API tests
+1. Create a new reusable workflow: `.github/workflows/run-{tool}.yml`
+2. Add a script wrapper: `scripts/run-{tool}.sh`
+3. Add a results parser: `scripts/parse-{tool}-results.py`
+4. Add tool defaults to `configs/shared-settings.json`
+5. Create per-app config: `configs/apps/{app}/{tool}.json`
+6. Wire it into `orchestrator.yml` and `scheduled-regression.yml`
