@@ -1,0 +1,7 @@
+# Member Portal - Code Owners
+# This file defines who owns the test configurations and suites
+# for the Member Portal application.
+
+# All member-portal configs and test suites
+configs/apps/member-portal/ @qa-team @member-portal-team
+test-suites/member-portal/ @qa-team @member-portal-team
