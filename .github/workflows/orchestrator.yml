@@ -12,6 +12,7 @@ jobs:
       environment: ${{ steps.validate.outputs.environment }}
       test-suite: ${{ steps.validate.outputs.test-suite }}
       test-type: ${{ steps.validate.outputs.test-type }}
+      test-plan: ${{ steps.validate.outputs.test-plan }}
     steps:
       - name: Validate Payload
         id: validate
@@ -22,6 +23,7 @@ jobs:
           VERSION="${{ github.event.client_payload.version || 'unknown' }}"
           TRIGGERED_BY="${{ github.event.client_payload.triggered_by || 'unknown' }}"
           TEST_TYPE="${{ github.event.client_payload.test_type || 'testcomplete' }}"
+          TEST_PLAN="${{ github.event.client_payload.test_plan || 'health-check' }}"
 
           echo "Validating dispatch payload..."
           echo "  app_name: $APP_NAME"
@@ -30,6 +32,7 @@ jobs:
           echo "  version: $VERSION"
           echo "  triggered_by: $TRIGGERED_BY"
           echo "  test_type: $TEST_TYPE"
+          echo "  test_plan: $TEST_PLAN"
 
           if [ -z "$APP_NAME" ] || [ -z "$ENVIRONMENT" ]; then
             echo "::error::Missing required fields: app_name and environment"
@@ -48,10 +51,17 @@ jobs:
             exit 1
           fi
 
+          # Validate JMeter test plan
+          if [[ ! "$TEST_PLAN" =~ ^(health-check|smoke|load|stress)$ ]]; then
+            echo "::error::Invalid test_plan: $TEST_PLAN (must be 'health-check', 'smoke', 'load', or 'stress')"
+            exit 1
+          fi
+
           echo "app-name=$APP_NAME" >> $GITHUB_OUTPUT
           echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
           echo "test-suite=$TEST_SUITE" >> $GITHUB_OUTPUT
           echo "test-type=$TEST_TYPE" >> $GITHUB_OUTPUT
+          echo "test-plan=$TEST_PLAN" >> $GITHUB_OUTPUT
 
       - name: Create Dispatch Summary
         if: success()
@@ -66,6 +76,7 @@ jobs:
           | Version | ${{ github.event.client_payload.version }} |
           | Test Suite | ${{ github.event.client_payload.test_suite || 'SmokeTests' }} |
           | Test Type | ${{ github.event.client_payload.test_type || 'testcomplete' }} |
+          | JMeter Plan | ${{ github.event.client_payload.test_plan || 'health-check' }} |
           | Triggered By | ${{ github.event.client_payload.triggered_by }} |
           | Timestamp | $(date -u +'%Y-%m-%dT%H:%M:%SZ') |
 
@@ -91,7 +102,7 @@ jobs:
     with:
       app-name: ${{ needs.validate-dispatch.outputs.app-name }}
       environment: ${{ needs.validate-dispatch.outputs.environment }}
-      test-plan: health-check
+      test-plan: ${{ needs.validate-dispatch.outputs.test-plan }}
     secrets:
       NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
 

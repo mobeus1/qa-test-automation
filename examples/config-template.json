@@ -1,0 +1,143 @@
+{
+  "$schema": "../config-schema.json",
+  "app_name": "{{APP_NAME}}",
+  "version": "1.0",
+  
+  "testcomplete": {
+    "enabled": true,
+    "project_suite": "{{APP_NAME}}.pjs",
+    
+    "test_items": {
+      "SmokeTests": [
+        "Login",
+        "NavigateToMainFeatures",
+        "BasicWorkflow",
+        "Logout"
+      ],
+      "RegressionTests": [
+        "Login",
+        "NavigateToMainFeatures",
+        "CreateRecord",
+        "UpdateRecord",
+        "SearchRecord",
+        "DeleteRecord",
+        "ValidateReports",
+        "ErrorHandling",
+        "Logout"
+      ],
+      "FullRegression": [
+        "AllTests"
+      ]
+    },
+    
+    "environments": {
+      "staging": {
+        "base_url": "https://{{APP_NAME}}-staging.example.com",
+        "credentials_secret": "{{APP_NAME_UPPER}}_STAGING_CREDS",
+        "variables": {
+          "DB_CONNECTION": "staging-db",
+          "API_VERSION": "v1"
+        }
+      },
+      "production": {
+        "base_url": "https://{{APP_NAME}}.example.com",
+        "credentials_secret": "{{APP_NAME_UPPER}}_PROD_CREDS",
+        "variables": {
+          "DB_CONNECTION": "prod-db",
+          "API_VERSION": "v1"
+        }
+      }
+    },
+    
+    "timeout_minutes": 120,
+    "parallel": false
+  },
+  
+  "jmeter": {
+    "enabled": true,
+    
+    "health_endpoints": [
+      {
+        "path": "/api/health",
+        "method": "GET",
+        "expected_status": 200,
+        "timeout_ms": 5000
+      },
+      {
+        "path": "/api/status",
+        "method": "GET",
+        "expected_status": 200,
+        "timeout_ms": 3000
+      }
+    ],
+    
+    "test_plans": {
+      "health-check": {
+        "enabled": true,
+        "threads": 1,
+        "ramp_up_seconds": 1,
+        "duration_seconds": 60
+      },
+      "smoke": {
+        "enabled": true,
+        "threads": 10,
+        "ramp_up_seconds": 30,
+        "duration_seconds": 300
+      },
+      "load": {
+        "enabled": true,
+        "threads": 100,
+        "ramp_up_seconds": 60,
+        "duration_seconds": 1800
+      },
+      "stress": {
+        "enabled": false,
+        "threads": 500,
+        "ramp_up_seconds": 120,
+        "duration_seconds": 3600
+      }
+    },
+    
+    "thresholds": {
+      "max_response_time_ms": 3000,
+      "max_error_rate_percent": 1.0,
+      "percentile_95_ms": 2000,
+      "percentile_99_ms": 4000
+    },
+    
+    "environments": {
+      "staging": {
+        "base_url": "https://{{APP_NAME}}-staging.example.com",
+        "credentials_secret": "{{APP_NAME_UPPER}}_STAGING_API_KEY"
+      },
+      "production": {
+        "base_url": "https://{{APP_NAME}}.example.com",
+        "credentials_secret": "{{APP_NAME_UPPER}}_PROD_API_KEY"
+      }
+    }
+  },
+  
+  "notifications": {
+    "slack_channel": "#qa-{{APP_NAME}}",
+    "teams_webhook": "TEAMS_WEBHOOK_{{APP_NAME_UPPER}}",
+    "email": [
+      "qa-team@example.com",
+      "{{APP_NAME}}-team@example.com"
+    ],
+    "on_failure_only": true
+  },
+  
+  "scheduling": {
+    "enabled": true,
+    "cron": "0 2 * * 1-5",
+    "test_suite": "RegressionTests",
+    "environment": "staging"
+  },
+  
+  "metadata": {
+    "team": "{{TEAM_NAME}}",
+    "contact": "@{{TEAM_LEAD}}",
+    "repository": "https://github.com/your-org/{{APP_NAME}}",
+    "documentation": "https://docs.example.com/testing/{{APP_NAME}}"
+  }
+}

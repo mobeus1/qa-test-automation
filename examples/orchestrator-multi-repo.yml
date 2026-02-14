@@ -1,0 +1,248 @@
+# Example: Updated Orchestrator for Multi-Repo Architecture
+# This workflow dynamically fetches app config from separate repositories
+
+name: QA Test Orchestrator (Multi-Repo)
+on:
+  repository_dispatch:
+    types: [deployment-complete]
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Application name'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      test_suite:
+        description: 'Test suite to run'
+        required: true
+        type: choice
+        options:
+          - SmokeTests
+          - RegressionTests
+          - FullRegression
+      test_type:
+        description: 'Test type'
+        required: true
+        type: choice
+        options:
+          - all
+          - testcomplete
+          - jmeter
+
+env:
+  QA_ORG_NAME: your-org  # Change to your GitHub org
+
+jobs:
+  fetch-config:
+    name: Fetch App Configuration
+    runs-on: ubuntu-latest
+    outputs:
+      config_path: ${{ steps.fetch.outputs.CONFIG_PATH }}
+      config_cached: ${{ steps.fetch.outputs.CONFIG_CACHED }}
+      testcomplete_enabled: ${{ steps.parse.outputs.testcomplete_enabled }}
+      jmeter_enabled: ${{ steps.parse.outputs.jmeter_enabled }}
+      config_json: ${{ steps.parse.outputs.config_json }}
+    
+    steps:
+      - name: Checkout orchestrator
+        uses: actions/checkout@v4
+      
+      - name: Get app name from payload
+        id: inputs
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            APP_NAME="${{ github.event.client_payload.app_name }}"
+            ENVIRONMENT="${{ github.event.client_payload.environment }}"
+            TEST_SUITE="${{ github.event.client_payload.test_suite }}"
+            TEST_TYPE="${{ github.event.client_payload.test_type }}"
+          else
+            APP_NAME="${{ inputs.app_name }}"
+            ENVIRONMENT="${{ inputs.environment }}"
+            TEST_SUITE="${{ inputs.test_suite }}"
+            TEST_TYPE="${{ inputs.test_type }}"
+          fi
+          
+          echo "app_name=${APP_NAME}" >> $GITHUB_OUTPUT
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          echo "test_suite=${TEST_SUITE}" >> $GITHUB_OUTPUT
+          echo "test_type=${TEST_TYPE}" >> $GITHUB_OUTPUT
+      
+      - name: Fetch configuration from config repo
+        id: fetch
+        run: |
+          chmod +x scripts/fetch-config.sh
+          ./scripts/fetch-config.sh "${{ steps.inputs.outputs.app_name }}"
+        env:
+          GH_TOKEN: ${{ secrets.CONFIG_READ_PAT }}
+      
+      - name: Parse configuration
+        id: parse
+        run: |
+          CONFIG_PATH="${{ steps.fetch.outputs.CONFIG_PATH }}"
+          
+          # Read and validate config
+          if [ ! -f "${CONFIG_PATH}/config.json" ]; then
+            echo "::error::config.json not found"
+            exit 1
+          fi
+          
+          # Extract configuration values
+          TC_ENABLED=$(jq -r '.testcomplete.enabled // false' "${CONFIG_PATH}/config.json")
+          JM_ENABLED=$(jq -r '.jmeter.enabled // false' "${CONFIG_PATH}/config.json")
+          
+          echo "testcomplete_enabled=${TC_ENABLED}" >> $GITHUB_OUTPUT
+          echo "jmeter_enabled=${JM_ENABLED}" >> $GITHUB_OUTPUT
+          
+          # Store entire config as output (for reusable workflows)
+          CONFIG_JSON=$(cat "${CONFIG_PATH}/config.json" | jq -c)
+          echo "config_json=${CONFIG_JSON}" >> $GITHUB_OUTPUT
+      
+      - name: Upload config as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-config-${{ steps.inputs.outputs.app_name }}
+          path: ${{ steps.fetch.outputs.CONFIG_PATH }}
+          retention-days: 7
+  
+  run-testcomplete:
+    name: Run TestComplete Tests
+    needs: fetch-config
+    if: |
+      needs.fetch-config.outputs.testcomplete_enabled == 'true' &&
+      (github.event.client_payload.test_type == 'all' || 
+       github.event.client_payload.test_type == 'testcomplete' ||
+       inputs.test_type == 'all' ||
+       inputs.test_type == 'testcomplete')
+    runs-on: self-hosted
+    
+    steps:
+      - name: Checkout orchestrator
+        uses: actions/checkout@v4
+      
+      - name: Download app config
+        uses: actions/download-artifact@v4
+        with:
+          name: app-config-${{ needs.fetch-config.outputs.app_name }}
+          path: ./app-config
+      
+      - name: Parse TestComplete config
+        id: tc-config
+        run: |
+          CONFIG=$(jq -r '.testcomplete' ./app-config/config.json)
+          PROJECT_SUITE=$(echo "$CONFIG" | jq -r '.project_suite')
+          
+          echo "project_suite=${PROJECT_SUITE}" >> $GITHUB_OUTPUT
+          echo "config=${CONFIG}" >> $GITHUB_OUTPUT
+      
+      - name: Run TestComplete
+        run: |
+          # Your existing TestComplete execution logic
+          # Now using ./app-config/testcomplete/ for test files
+          PROJECT_PATH="./app-config/testcomplete/${{ steps.tc-config.outputs.project_suite }}"
+          
+          ./scripts/run-tests.bat \
+            "$PROJECT_PATH" \
+            "${{ needs.fetch-config.outputs.test_suite }}"
+      
+      - name: Parse results
+        if: always()
+        run: python scripts/parse-results.py
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testcomplete-results-${{ needs.fetch-config.outputs.app_name }}
+          path: test-results/
+  
+  run-jmeter:
+    name: Run JMeter Tests
+    needs: fetch-config
+    if: |
+      needs.fetch-config.outputs.jmeter_enabled == 'true' &&
+      (github.event.client_payload.test_type == 'all' || 
+       github.event.client_payload.test_type == 'jmeter' ||
+       inputs.test_type == 'all' ||
+       inputs.test_type == 'jmeter')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout orchestrator
+        uses: actions/checkout@v4
+      
+      - name: Download app config
+        uses: actions/download-artifact@v4
+        with:
+          name: app-config-${{ needs.fetch-config.outputs.app_name }}
+          path: ./app-config
+      
+      - name: Install JMeter
+        run: |
+          wget https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz
+          tar -xzf apache-jmeter-5.6.3.tgz
+          echo "JMETER_HOME=$(pwd)/apache-jmeter-5.6.3" >> $GITHUB_ENV
+      
+      - name: Parse JMeter config
+        id: jm-config
+        run: |
+          CONFIG=$(jq -r '.jmeter' ./app-config/config.json)
+          BASE_URL=$(echo "$CONFIG" | jq -r '.environments.${{ needs.fetch-config.outputs.environment }}.base_url')
+          
+          echo "base_url=${BASE_URL}" >> $GITHUB_OUTPUT
+          echo "config=${CONFIG}" >> $GITHUB_OUTPUT
+      
+      - name: Run JMeter tests
+        run: |
+          # Check if custom test plans exist
+          if [ -d "./app-config/jmeter" ]; then
+            TEST_PLAN="./app-config/jmeter/health-check.jmx"
+          else
+            # Generate from config
+            python scripts/generate-jmeter-plan.py \
+              --config ./app-config/config.json \
+              --output health-check.jmx
+            TEST_PLAN="health-check.jmx"
+          fi
+          
+          ./scripts/run-jmeter.sh "$TEST_PLAN" "${{ steps.jm-config.outputs.base_url }}"
+      
+      - name: Parse JMeter results
+        if: always()
+        run: python scripts/parse-jmeter-results.py
+      
+      - name: Upload JMeter results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-results-${{ needs.fetch-config.outputs.app_name }}
+          path: jmeter-results/
+  
+  notify:
+    name: Send Notifications
+    needs: [fetch-config, run-testcomplete, run-jmeter]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout orchestrator
+        uses: actions/checkout@v4
+      
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          path: ./all-results
+      
+      - name: Send notification
+        run: |
+          python scripts/notify.py \
+            --app "${{ needs.fetch-config.outputs.app_name }}" \
+            --results-dir ./all-results
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}

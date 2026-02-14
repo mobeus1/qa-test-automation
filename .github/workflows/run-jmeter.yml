@@ -1,4 +1,4 @@
-name: Run JMeter Health Check Tests
+name: Run JMeter Tests
 
 on:
   workflow_call:
@@ -6,7 +6,7 @@ on:
       app-name:
         required: true
         type: string
-        description: 'Application name (must match configs/apps/<app-name>)'
+        description: 'Application name (must match CareFirst-qa-data/apps/<app-name>)'
       environment:
         required: true
         type: string
@@ -61,9 +61,18 @@ jobs:
   run-jmeter:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      DATA_REPO: ${{ github.repository_owner }}/CareFirst-qa-data
     steps:
       - name: Checkout QA Repository
         uses: actions/checkout@v4
+
+      - name: Checkout JMeter Config Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.DATA_REPO }}
+          path: qa-data
+          token: ${{ secrets.DATA_REPO_PAT || github.token }}
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -82,7 +91,7 @@ jobs:
       - name: Load Application Config
         id: config
         run: |
-          CONFIG_PATH="configs/apps/${{ inputs.app-name }}/jmeter.json"
+          CONFIG_PATH="qa-data/apps/${{ inputs.app-name }}/jmeter.json"
           if [ -n "${{ inputs.config-file }}" ]; then
             CONFIG_PATH="${{ inputs.config-file }}"
           fi
@@ -102,11 +111,32 @@ jobs:
           echo "max-response-time=$THRESHOLDS_RT" >> $GITHUB_OUTPUT
           echo "max-error-rate=$THRESHOLDS_ERR" >> $GITHUB_OUTPUT
 
+      - name: Validate JMeter Inputs
+        run: |
+          if [ -z "${{ steps.config.outputs.base-url }}" ] || [ "${{ steps.config.outputs.base-url }}" = "null" ]; then
+            echo "::error::Base URL missing for environment '${{ inputs.environment }}'"
+            exit 1
+          fi
+
+          if [ "${{ inputs.test-plan }}" = "health-check" ]; then
+            if [ -z "${{ steps.config.outputs.health-endpoints }}" ] || [ "${{ steps.config.outputs.health-endpoints }}" = "null" ]; then
+              echo "::error::Health endpoints missing for health-check plan"
+              exit 1
+            fi
+          else
+            PLAN_FILE="qa-data/apps/${{ inputs.app-name }}/jmeter/${{ inputs.test-plan }}.jmx"
+            if [ ! -f "$PLAN_FILE" ]; then
+              echo "::error::JMX file not found for plan '${{ inputs.test-plan }}': $PLAN_FILE"
+              exit 1
+            fi
+          fi
+
       - name: Run JMeter Health Check
         id: jmeter-run
         run: |
           scripts/run-jmeter.sh \
             --app "${{ inputs.app-name }}" \
+            --data-root "qa-data/apps/${{ inputs.app-name }}" \
             --base-url "${{ steps.config.outputs.base-url }}" \
             --endpoints "${{ steps.config.outputs.health-endpoints }}" \
             --test-plan "${{ inputs.test-plan }}" \
@@ -121,6 +151,7 @@ jobs:
           python scripts/parse-jmeter-results.py \
             --app "${{ inputs.app-name }}" \
             --env "${{ inputs.environment }}" \
+            --test-plan "${{ inputs.test-plan }}" \
             --results-dir "test-results/jmeter" \
             --max-response-time "${{ steps.config.outputs.max-response-time }}" \
             --max-error-rate "${{ steps.config.outputs.max-error-rate }}"
@@ -136,7 +167,7 @@ jobs:
       - name: Create Job Summary
         if: always()
         run: |
-          echo "## JMeter Health Check: ${{ inputs.app-name }} (${{ inputs.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "## JMeter Results: ${{ inputs.app-name }} (${{ inputs.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| App | ${{ inputs.app-name }} |" >> $GITHUB_STEP_SUMMARY
@@ -159,7 +190,7 @@ jobs:
               --app "${{ inputs.app-name }}" \
               --env "${{ inputs.environment }}" \
               --status "failed" \
-              --test-type "jmeter-health-check" \
+              --test-type "jmeter-${{ inputs.test-plan }}" \
               --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
 
