@@ -28,7 +28,7 @@ flowchart LR
 
     A[Deployment or Scheduled Run]:::trigger
 
-    subgraph ORCH[qa-test-automation (Orchestrator Repo)]
+    subgraph ORCH["qa-test-automation<br/>(Orchestrator Repo)"]
         B[Receives test request]:::repo
         C[Loads app settings + test files]:::repo
         D{Which tests are requested?}:::decision
@@ -37,7 +37,7 @@ flowchart LR
         G[Test Results + Notifications]:::result
     end
 
-    subgraph DATA[CareFirst-qa-data (Config + Test Files Repo)]
+    subgraph DATA["CareFirst-qa-data<br/>(Config + Test Files Repo)"]
         H[Per-app configs + test plans]:::repo
     end
 
