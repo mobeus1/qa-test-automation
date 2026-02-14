@@ -14,6 +14,8 @@ def parse_args():
     parser.add_argument("--app", required=True, help="Application name")
     parser.add_argument("--env", required=True, help="Environment name")
     parser.add_argument("--results-dir", default="test-results", help="Results directory")
+    parser.add_argument("--suite-name", default="", help="Test suite name")
+    parser.add_argument("--output-format", default="", help="Output format (unused)")
     return parser.parse_args()
 
 
@@ -26,20 +28,21 @@ def find_latest_results(results_dir):
     return subdirs[0] if subdirs else None
 
 
-def generate_summary(app_name, environment, results_dir):
+def generate_summary(app_name, environment, results_dir, suite_name):
     """Generate a test summary report."""
     latest = find_latest_results(results_dir)
 
     summary = {
         "app_name": app_name,
         "environment": environment,
+        "suite_name": suite_name,
         "timestamp": datetime.utcnow().isoformat(),
         "results_path": str(latest) if latest else "No results found",
         "status": "completed"
     }
 
-    os.makedirs("test-results", exist_ok=True)
-    summary_path = f"test-results/{app_name}-{environment}-summary.json"
+    os.makedirs(results_dir, exist_ok=True)
+    summary_path = os.path.join(results_dir, f"{app_name}-{environment}-summary.json")
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
 
@@ -49,7 +52,7 @@ def generate_summary(app_name, environment, results_dir):
 
 def main():
     args = parse_args()
-    summary = generate_summary(args.app, args.env, args.results_dir)
+    summary = generate_summary(args.app, args.env, args.results_dir, args.suite_name)
     print(json.dumps(summary, indent=2))
 
 

@@ -142,11 +142,28 @@ Go to **Actions > Scheduled Regression Tests > Run workflow** and select your ap
 | `environments` | Per-env base URLs and overrides |
 | `thresholds` | Pass/fail criteria (response time, error rate) |
 
+## Scaling to 50+ Applications?
+
+⚠️ **Important**: The current monorepo structure works well for 10-20 apps but doesn't scale beyond that.
+
+If you're managing **50+ applications** (especially 100+), consider migrating to a **multi-repo architecture**:
+
+- 📖 **[Scalable Architecture Options](docs/scalable-architecture-options.md)** - Detailed comparison of approaches
+- 🚀 **[Migration Summary](docs/MIGRATION-SUMMARY.md)** - Quick start guide
+- 🛠️ **[Multi-Repo Setup Guide](docs/multi-repo-setup-guide.md)** - Team setup instructions
+- 🤖 **[Automated Migration Script](scripts/migrate-to-multi-repo.py)** - One-command migration
+
+**Benefits of multi-repo**: 10x faster CI/CD, better team autonomy, repo-level access control, scales to 1000+ apps.
+
 ## Documentation
 
 - [Architecture Deep Dive](docs/architecture.md)
+- [Non-Technical Overview](docs/non-technical-overview.md)
 - [Onboarding New Applications](docs/onboarding-new-app.md)
 - [Troubleshooting Guide](docs/troubleshooting.md)
+- [Scalable Architecture Options](docs/scalable-architecture-options.md) ⭐ **For 50+ apps**
+- [Migration Summary](docs/MIGRATION-SUMMARY.md)
+- [Multi-Repo Setup Guide](docs/multi-repo-setup-guide.md)
 
 ## Required Secrets
 

@@ -3,6 +3,7 @@
 # JMeter Health Check Runner
 # Usage: run-jmeter.sh --app <name> --base-url <url> --endpoints <csv>
 #        --test-plan <plan> --threads <n> --duration <s> --output-dir <dir>
+#        --data-root <path>
 # ============================================================
 
 set -euo pipefail
@@ -11,6 +12,7 @@ set -euo pipefail
 while [[ $# -gt 0 ]]; do
   case $1 in
     --app) APP_NAME="$2"; shift 2 ;;
+    --data-root) DATA_ROOT="$2"; shift 2 ;;
     --base-url) BASE_URL="$2"; shift 2 ;;
     --endpoints) ENDPOINTS="$2"; shift 2 ;;
     --test-plan) TEST_PLAN="$2"; shift 2 ;;
@@ -26,6 +28,7 @@ THREADS=${THREADS:-1}
 DURATION=${DURATION:-60}
 OUTPUT_DIR=${OUTPUT_DIR:-test-results/jmeter}
 TEST_PLAN=${TEST_PLAN:-health-check}
+DATA_ROOT=${DATA_ROOT:-test-suites/$APP_NAME}
 
 echo "============================================================"
 echo "QA Test Automation - JMeter Health Check Runner"
@@ -42,7 +45,7 @@ echo "============================================================"
 mkdir -p "$OUTPUT_DIR"
 
 # Determine JMeter test plan file
-JMX_FILE="test-suites/$APP_NAME/jmeter/${TEST_PLAN}.jmx"
+JMX_FILE="$DATA_ROOT/jmeter/${TEST_PLAN}.jmx"
 
 if [ ! -f "$JMX_FILE" ]; then
   echo "JMX file not found: $JMX_FILE"

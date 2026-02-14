@@ -13,6 +13,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Parse JMeter results")
     parser.add_argument("--app", required=True, help="Application name")
     parser.add_argument("--env", required=True, help="Environment name")
+    parser.add_argument("--test-plan", default="health-check", help="JMeter test plan name")
     parser.add_argument("--results-dir", default="test-results/jmeter")
     parser.add_argument("--max-response-time", type=int, default=5000, help="Max response time in ms")
     parser.add_argument("--max-error-rate", type=float, default=1.0, help="Max error rate percent")
@@ -82,14 +83,14 @@ def analyze_results(results):
     return summary
 
 
-def generate_markdown_summary(summary, app_name, env, max_rt, max_err):
+def generate_markdown_summary(summary, app_name, env, test_plan, max_rt, max_err):
     """Generate a markdown summary for GitHub Actions."""
     passed_rt = summary["avg_response_time_ms"] <= max_rt
     passed_err = summary["error_rate"] <= max_err
     overall = "PASSED" if (passed_rt and passed_err) else "FAILED"
 
     lines = [
-        f"### Health Check Results: {overall}",
+        f"### JMeter Results ({test_plan}): {overall}",
         f"| Metric | Value | Threshold | Status |",
         f"|--------|-------|-----------|--------|",
         f"| Avg Response Time | {summary['avg_response_time_ms']}ms | <{max_rt}ms | {'PASS' if passed_rt else 'FAIL'} |",
@@ -121,7 +122,14 @@ def main():
         json.dump(summary, f, indent=2)
 
     # Write markdown summary
-    md = generate_markdown_summary(summary, args.app, args.env, args.max_response_time, args.max_error_rate)
+    md = generate_markdown_summary(
+        summary,
+        args.app,
+        args.env,
+        args.test_plan,
+        args.max_response_time,
+        args.max_error_rate,
+    )
     with open(os.path.join(args.results_dir, "summary.md"), "w") as f:
         f.write(md)
 

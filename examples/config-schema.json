@@ -1,0 +1,312 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QA Test Configuration",
+  "description": "Configuration for QA test automation (multi-repo architecture)",
+  "type": "object",
+  "required": ["app_name", "version"],
+  "properties": {
+    "app_name": {
+      "type": "string",
+      "description": "Unique identifier for the application",
+      "pattern": "^[a-z0-9-]+$",
+      "examples": ["member-portal", "application-axz", "customer-dashboard"]
+    },
+    "version": {
+      "type": "string",
+      "description": "Configuration schema version",
+      "default": "1.0"
+    },
+    "testcomplete": {
+      "type": "object",
+      "description": "TestComplete/TestExecute configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable TestComplete tests for this application",
+          "default": true
+        },
+        "project_suite": {
+          "type": "string",
+          "description": "Path to .pjs file relative to testcomplete/ folder",
+          "examples": ["MyApp.pjs", "Project/MyApp.pjs"]
+        },
+        "test_items": {
+          "type": "object",
+          "description": "Test suite definitions",
+          "properties": {
+            "SmokeTests": {
+              "type": "array",
+              "description": "Quick smoke tests (5-15 min)",
+              "items": {"type": "string"},
+              "examples": [["Login", "Navigation", "Logout"]]
+            },
+            "RegressionTests": {
+              "type": "array",
+              "description": "Core regression suite (30-60 min)",
+              "items": {"type": "string"}
+            },
+            "FullRegression": {
+              "type": "array",
+              "description": "Complete test suite (2-4 hours)",
+              "items": {"type": "string"}
+            }
+          }
+        },
+        "environments": {
+          "type": "object",
+          "description": "Environment-specific settings",
+          "properties": {
+            "staging": {
+              "$ref": "#/definitions/environment"
+            },
+            "production": {
+              "$ref": "#/definitions/environment"
+            }
+          }
+        },
+        "timeout_minutes": {
+          "type": "integer",
+          "description": "Maximum test execution time",
+          "default": 120,
+          "minimum": 5,
+          "maximum": 480
+        },
+        "parallel": {
+          "type": "boolean",
+          "description": "Enable parallel test execution",
+          "default": false
+        }
+      },
+      "required": ["enabled"]
+    },
+    "jmeter": {
+      "type": "object",
+      "description": "JMeter configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable JMeter tests for this application",
+          "default": true
+        },
+        "health_endpoints": {
+          "type": "array",
+          "description": "Health check endpoints to monitor",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "examples": ["/api/health", "/status", "/"]
+              },
+              "method": {
+                "type": "string",
+                "enum": ["GET", "POST", "PUT", "DELETE"],
+                "default": "GET"
+              },
+              "expected_status": {
+                "type": "integer",
+                "default": 200
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "default": 5000
+              }
+            },
+            "required": ["path"]
+          }
+        },
+        "test_plans": {
+          "type": "object",
+          "description": "JMeter test plan configurations",
+          "properties": {
+            "health-check": {
+              "$ref": "#/definitions/jmeter_test_plan"
+            },
+            "smoke": {
+              "$ref": "#/definitions/jmeter_test_plan"
+            },
+            "load": {
+              "$ref": "#/definitions/jmeter_test_plan"
+            },
+            "stress": {
+              "$ref": "#/definitions/jmeter_test_plan"
+            }
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "description": "Performance thresholds",
+          "properties": {
+            "max_response_time_ms": {
+              "type": "integer",
+              "default": 3000
+            },
+            "max_error_rate_percent": {
+              "type": "number",
+              "default": 1.0,
+              "maximum": 100
+            },
+            "percentile_95_ms": {
+              "type": "integer",
+              "description": "95th percentile response time threshold"
+            },
+            "percentile_99_ms": {
+              "type": "integer",
+              "description": "99th percentile response time threshold"
+            }
+          }
+        },
+        "environments": {
+          "type": "object",
+          "properties": {
+            "staging": {
+              "type": "object",
+              "properties": {
+                "base_url": {"type": "string", "format": "uri"},
+                "credentials_secret": {"type": "string"}
+              },
+              "required": ["base_url"]
+            },
+            "production": {
+              "type": "object",
+              "properties": {
+                "base_url": {"type": "string", "format": "uri"},
+                "credentials_secret": {"type": "string"}
+              },
+              "required": ["base_url"]
+            }
+          }
+        }
+      },
+      "required": ["enabled"]
+    },
+    "notifications": {
+      "type": "object",
+      "description": "Notification settings",
+      "properties": {
+        "slack_channel": {
+          "type": "string",
+          "description": "Slack channel for notifications",
+          "examples": ["#qa-alerts", "#team-notifications"]
+        },
+        "teams_webhook": {
+          "type": "string",
+          "description": "Microsoft Teams webhook URL secret name"
+        },
+        "email": {
+          "type": "array",
+          "description": "Email addresses for notifications",
+          "items": {
+            "type": "string",
+            "format": "email"
+          }
+        },
+        "on_failure_only": {
+          "type": "boolean",
+          "description": "Only send notifications on test failures",
+          "default": true
+        }
+      }
+    },
+    "scheduling": {
+      "type": "object",
+      "description": "Scheduled test run configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "cron": {
+          "type": "string",
+          "description": "Cron expression for scheduling",
+          "examples": ["0 2 * * 1-5", "0 */6 * * *"]
+        },
+        "test_suite": {
+          "type": "string",
+          "enum": ["SmokeTests", "RegressionTests", "FullRegression"],
+          "default": "RegressionTests"
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["staging", "production"],
+          "default": "staging"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata",
+      "properties": {
+        "team": {
+          "type": "string",
+          "description": "Owning team name"
+        },
+        "contact": {
+          "type": "string",
+          "description": "Primary contact (email or Slack handle)"
+        },
+        "repository": {
+          "type": "string",
+          "description": "Application source repository URL",
+          "format": "uri"
+        },
+        "documentation": {
+          "type": "string",
+          "description": "Link to test documentation",
+          "format": "uri"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "environment": {
+      "type": "object",
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Application base URL"
+        },
+        "credentials_secret": {
+          "type": "string",
+          "description": "GitHub secret name for credentials"
+        },
+        "variables": {
+          "type": "object",
+          "description": "Additional environment variables",
+          "additionalProperties": {"type": "string"}
+        }
+      },
+      "required": ["base_url"]
+    },
+    "jmeter_test_plan": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "threads": {
+          "type": "integer",
+          "description": "Number of virtual users",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "ramp_up_seconds": {
+          "type": "integer",
+          "description": "Ramp-up time in seconds",
+          "default": 60
+        },
+        "duration_seconds": {
+          "type": "integer",
+          "description": "Test duration in seconds",
+          "minimum": 1
+        },
+        "custom_jmx": {
+          "type": "string",
+          "description": "Path to custom .jmx file in jmeter/ folder"
+        }
+      }
+    }
+  }
+}

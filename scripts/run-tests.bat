@@ -1,13 +1,13 @@
 @echo off
 REM ============================================================
 REM TestComplete/TestExecute CLI Wrapper
-REM Usage: run-tests.bat <project_suite> <test_item> <access_key> <base_url>
+REM Usage: run-tests.bat <project_suite> <test_items_csv> <access_key> <base_url>
 REM ============================================================
 
 setlocal enabledelayedexpansion
 
 set PROJECT_SUITE=%~1
-set TEST_ITEM=%~2
+set TEST_ITEMS=%~2
 set ACCESS_KEY=%~3
 set BASE_URL=%~4
 set LOG_DIR=test-results\%date:~-4%%date:~4,2%%date:~7,2%
@@ -16,7 +16,7 @@ echo ============================================================
 echo QA Test Automation - TestComplete Runner
 echo ============================================================
 echo Project Suite: %PROJECT_SUITE%
-echo Test Item:     %TEST_ITEM%
+echo Test Items:    %TEST_ITEMS%
 echo Base URL:      %BASE_URL%
 echo Log Directory: %LOG_DIR%
 echo ============================================================
@@ -37,9 +37,17 @@ if exist "C:\Program Files (x86)\SmartBear\TestExecute 15\Bin\TestExecute.exe" (
 )
 
 echo Running tests...
-%TC_EXE% "%PROJECT_SUITE%" /run /p:"%TEST_ITEM%" /AccessKey:%ACCESS_KEY% /ExportLog:"%LOG_DIR%\results.mht" /exit
 
-set EXIT_CODE=%ERRORLEVEL%
+set EXIT_CODE=0
+set ITEMS_LIST=%TEST_ITEMS:,= %
+for %%T in (%ITEMS_LIST%) do (
+    set ITEM=%%T
+    set ITEM_SAFE=!ITEM: =_!
+    echo Running Test Item: !ITEM!
+    %TC_EXE% "%PROJECT_SUITE%" /run /p:"!ITEM!" /AccessKey:%ACCESS_KEY% /ExportLog:"%LOG_DIR%\results_!ITEM_SAFE!.mht" /exit
+    set ITEM_EXIT=!ERRORLEVEL!
+    if !ITEM_EXIT! GTR !EXIT_CODE! set EXIT_CODE=!ITEM_EXIT!
+)
 
 echo.
 echo ============================================================

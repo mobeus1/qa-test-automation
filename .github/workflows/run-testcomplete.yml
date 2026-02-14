@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       app-name:
-        description: 'Application name matching configs/apps/{app-name}/testcomplete.json'
+        description: 'Application name matching CareFirst-qa-data/apps/{app-name}/testcomplete.json'
         required: true
         type: string
       environment:
@@ -26,23 +26,33 @@ jobs:
   run-tests:
     runs-on: [self-hosted, windows, testcomplete]
     timeout-minutes: 60
+    env:
+      DATA_REPO: ${{ github.repository_owner }}/CareFirst-qa-data
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Checkout Test Data Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.DATA_REPO }}
+          path: qa-data
+          token: ${{ secrets.DATA_REPO_PAT || github.token }}
+
       - name: Load App Configuration
         id: config
         shell: pwsh
         run: |
-          $configPath = "configs/apps/${{ inputs.app-name }}/testcomplete.json"
+          $configPath = "qa-data/apps/${{ inputs.app-name }}/testcomplete.json"
           if (-not (Test-Path $configPath)) {
             Write-Error "Config not found: $configPath"
             exit 1
           }
 
           $config = Get-Content $configPath | ConvertFrom-Json
-          echo "project-suite=$($config.project_suite)" >> $env:GITHUB_OUTPUT
+          $suitePath = Join-Path "qa-data/apps/${{ inputs.app-name }}/testcomplete" $config.project_suite
+          echo "project-suite=$suitePath" >> $env:GITHUB_OUTPUT
           echo "timeout=$($config.timeout_minutes)" >> $env:GITHUB_OUTPUT
 
           # Get environment-specific settings
@@ -63,18 +73,30 @@ jobs:
           $itemList = $testItems -join ','
           echo "test-items=$itemList" >> $env:GITHUB_OUTPUT
 
+      - name: Validate TestComplete Inputs
+        shell: pwsh
+        run: |
+          $suitePath = "${{ steps.config.outputs.project-suite }}"
+          if (-not (Test-Path $suitePath)) {
+            Write-Error "Project suite not found: $suitePath"
+            exit 1
+          }
+
+          $items = "${{ steps.config.outputs.test-items }}"
+          if ([string]::IsNullOrWhiteSpace($items)) {
+            Write-Error "No test items configured for suite '${{ inputs.test-suite }}'"
+            exit 1
+          }
+
       - name: Run TestComplete Suite
         id: execute
         shell: cmd
-        env:
-          TC_ACCESS_KEY: ${{ secrets.TEST_EXECUTE_ACCESS_KEY }}
-          TEST_ENV: ${{ inputs.environment }}
-          BASE_URL: ${{ steps.config.outputs.base-url }}
         run: |
           scripts\\run-tests.bat ^
             "${{ steps.config.outputs.project-suite }}" ^
-            "${{ inputs.test-suite }}" ^
-            "${{ steps.config.outputs.test-items }}"
+            "${{ steps.config.outputs.test-items }}" ^
+            "${{ secrets.TEST_EXECUTE_ACCESS_KEY }}" ^
+            "${{ steps.config.outputs.base-url }}"
 
       - name: Parse Test Results
         if: always()
@@ -82,16 +104,17 @@ jobs:
         shell: pwsh
         run: |
           python scripts/parse-results.py ^
-            --results-dir "TestResults" ^
-            --output-format github ^
-            --suite-name "${{ inputs.test-suite }}"
+            --app "${{ inputs.app-name }}" ^
+            --env "${{ inputs.environment }}" ^
+            --suite-name "${{ inputs.test-suite }}" ^
+            --results-dir "test-results"
 
       - name: Upload Test Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: testcomplete-results-${{ inputs.app-name }}-${{ inputs.environment }}
-          path: TestResults/
+          path: test-results/
           retention-days: 30
 
       - name: Notify on Failure
